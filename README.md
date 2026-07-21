@@ -30,10 +30,10 @@ $ cd frontend
 $ npm install
 ```
 
-### Starting the Backend
+### Preparing and Starting the Backend
 
-Our backend uses Gin for handling the API, Gorm for database management, and Gorilla for websocks.
-We also use SQLite as our database solution, so no data will be exposed to the internet.
+Our backend uses Gin for the API, GORM for database access, Gorilla for WebSockets, and SQLite for
+local persistence. SQLite does not replace normal application and host security controls.
 
 1.) Copy the example environment file `.example.env` → `.env`
 
@@ -44,14 +44,26 @@ $ cd ../backend
 $ cp .example.env .env
 ```
 
-The credentials are already set and non-sensitive (insecure), so no changes are needed.
+Replace the example JWT secret before running the application outside local development.
 
-2.) Start the database
+2.) Create or update the database schema
+
+```
+$ go run ./cmd/migrate
+```
+
+3.) Optionally seed local sample data
 
 This will download a few images for use in the seed data (listings).
 
 ```
-$ go run .
+$ go run ./cmd/seed
+```
+
+4.) Start the API server
+
+```
+$ go run ./cmd/server
 ```
 
 ### Starting the Frontend
@@ -69,6 +81,5 @@ $ ng serve
 
 ## Using the application.
 
-From here, it is straight forward to use the application. Simply sign in using one of the pre-seeded accounts
-(email: 'test@ufl.edu', password: 'password') or sign up by clicking sign up. All info is stored on disk using
-SQLite, so there is no risk of data exposure.  
+Sign in with the local seed account (`test@ufl.edu`, password `password`) or create an account.
+Seed credentials are for local development only and must not be used in a deployed environment.
