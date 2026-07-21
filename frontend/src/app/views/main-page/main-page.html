@@ -1,0 +1,41 @@
+<!-- Sticky header -->
+<header class="main-header">
+  <div class="header-left">
+    <img src="gator-logo.png" alt="UF Logo" class="gator-icon" />
+    <span class="brand-text">UF MarketPlace</span>
+  </div>
+
+  <div class="header-search">
+    <mat-form-field class="search-field" appearance="outline">
+      <mat-icon matPrefix>search</mat-icon>
+      <input
+        matInput
+        placeholder="Search marketplace..."
+        [(ngModel)]="searchQuery"
+        (input)="search()"
+      />
+    </mat-form-field>
+  </div>
+
+  <app-avatar-dropdown></app-avatar-dropdown>
+</header>
+
+<!-- Listing grid -->
+<main class="listing-grid">
+  @for (listing of filteredListings; track listing.id) {
+    <div class="listing-link" (click)="openListing(listing)">
+      <app-listing [listing]="listing"></app-listing>
+    </div>
+  }
+  @if (filteredListings.length === 0) {
+    <div class="no-results">
+      <mat-icon>search_off</mat-icon>
+      <p>No items found for "{{ searchQuery }}"</p>
+    </div>
+  }
+</main>
+
+<!-- FAB Add Button -->
+<button class="fab-btn" (click)="openAddModal()">
+  <mat-icon>add</mat-icon>
+</button>

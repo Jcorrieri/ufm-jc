@@ -1,0 +1,193 @@
+/* ===== Layout ===== */
+:host {
+  display: block;
+  color-scheme: light;
+}
+
+.login-wrapper {
+  flex: 1;
+  display: flex;
+  height: 100vh;
+}
+
+/* ===== Left — form ===== */
+.login-left {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 48px 32px;
+  background-color: #fff;
+}
+
+.form-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.form-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin-bottom: 16px;
+}
+
+.form-subtitle {
+  color: #888;
+  font-size: 0.95rem;
+  margin-bottom: 28px;
+}
+
+/* --- Input groups --- */
+.input-group {
+  margin-bottom: 20px;
+}
+
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.forgot-link {
+  font-size: 0.88rem;
+  color: var(--link-color, #1a73e8);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.forgot-link:hover {
+  text-decoration: underline;
+}
+
+.forgot-row {
+  margin-top: 0;
+  margin-bottom: 6px;
+  margin-right: 0;
+  text-align: right;
+}
+
+/* Primary sign-in button styling (matches LoginButton component) */
+.primary {
+  width: 100%;
+  padding: 14px;
+  border-radius: 10px;
+  border: none;
+  background-color: #fa4616;
+  color: #fff;
+  font-family: 'Nunito', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    transform 0.1s ease;
+  margin-top: 30px;
+}
+
+.primary:hover {
+  background-color: #e03d12;
+}
+
+.primary:active {
+  transform: scale(0.97);
+}
+
+.signup-text {
+  text-align: center;
+  margin-top: 18px;
+  font-size: 0.9rem;
+}
+
+/* Style the inlined login button to match brand while staying Material-friendly */
+.login-btn {
+  width: 100%;
+  border-radius: 12px;
+  font-family: var(--app-font, 'Segoe UI', sans-serif);
+  font-weight: 700;
+  padding: 26px 16px;
+  background-color: var(--brand-primary, #fa4616) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.login-btn[disabled] {
+  opacity: 0.6;
+}
+
+.login-btn.mat-flat-button:hover:not([disabled]) {
+  background-color: var(--brand-primary-dark, #e03d12) !important;
+}
+
+.full-width {
+  width: 100%;
+}
+
+/* ===== Right — hero ===== */
+.login-right {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px 40px;
+  background: linear-gradient(
+    135deg,
+    var(--brand-accent, #0021a5) 0%,
+    var(--brand-primary, #fa4616) 100%
+  );
+  color: #fff;
+}
+
+.hero-content {
+  max-width: 460px;
+}
+
+.hero-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 18px;
+}
+
+.hero-desc {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  opacity: 0.92;
+  margin-bottom: 36px;
+}
+.hero-features {
+  display: flex;
+  flex-direction: column;
+  row-gap: 16px;
+}
+
+.feature {
+  display: flex;
+  align-items: center;
+  column-gap: 12px;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.feature-icon {
+  font-size: 26px;
+  opacity: 0.9;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .login-wrapper {
+    flex-direction: column;
+  }
+
+  .login-right {
+    padding: 40px 24px;
+  }
+
+  .hero-title {
+    font-size: 1.9rem;
+  }
+}

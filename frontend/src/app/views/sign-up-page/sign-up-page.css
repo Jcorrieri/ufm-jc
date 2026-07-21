@@ -1,0 +1,147 @@
+:host {
+  display: block;
+  font-family: var(--app-font);
+  color-scheme: light;
+}
+
+.signup-wrapper {
+  display: flex;
+  min-height: 100vh;
+}
+
+.signup-left {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 48px 32px;
+  background-color: #fff;
+}
+
+.form-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.form-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin-bottom: 16px;
+}
+
+.form-subtitle {
+  color: #888;
+  font-size: 0.95rem;
+  margin-bottom: 28px;
+}
+
+.input-row {
+  display: flex;
+  gap: 16px;
+}
+
+.full-width {
+  width: 100%;
+}
+
+mat-form-field {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+/* Updated Sign Up Button to match login-btn geometry and disabled state */
+.signup-btn {
+  width: 100%;
+  border-radius: 12px !important;
+  font-family: var(--app-font);
+  font-weight: 700;
+  padding: 26px 16px !important;
+  background-color: var(--brand-primary) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin-top: 10px;
+  transition: opacity 0.2s ease;
+}
+
+/* Mirror the grayed-out effect from the login page */
+.signup-btn[disabled] {
+  opacity: 0.6;
+}
+
+.signup-btn:hover:not([disabled]) {
+  filter: brightness(0.9);
+}
+
+.login-text {
+  text-align: center;
+  margin-top: 22px;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.login-link {
+  color: var(--link-color);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+.signup-right {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px 40px;
+  background: linear-gradient(135deg, var(--brand-accent) 0%, var(--brand-primary) 100%);
+  color: #fff;
+}
+
+.hero-content {
+  max-width: 460px;
+}
+.hero-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 18px;
+}
+.hero-desc {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  opacity: 0.92;
+  margin-bottom: 36px;
+}
+.hero-features {
+  display: flex;
+  flex-direction: column;
+  row-gap: 16px;
+}
+.feature {
+  display: flex;
+  align-items: center;
+  column-gap: 12px;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+.feature-icon {
+  font-size: 26px;
+  opacity: 0.9;
+}
+
+.error-text {
+  color: #d32f2f;
+  text-align: center;
+  margin-top: 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .signup-wrapper {
+    flex-direction: column;
+  }
+  .signup-right {
+    padding: 40px 24px;
+  }
+}

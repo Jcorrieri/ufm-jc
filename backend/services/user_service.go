@@ -1,0 +1,169 @@
+package services
+
+import (
+	"context"
+	"errors"
+
+	"github.com/Jcorrieri/uf-marketplace/backend/models"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
+	"gorm.io/gorm"
+)
+
+// Define the service struct whose only dependency is the db connection.
+// Services will handle all database operations for each model (users, posts, etc.).
+// See https://gorm.io/docs/the_generics_way.html for generics API usage.
+
+// UserService handles user-related database operations
+type UserService struct {
+	db *gorm.DB
+}
+
+func NewUserService(db *gorm.DB) *UserService {
+	return &UserService{db: db}
+}
+
+func (s *UserService) GetAll(ctx context.Context) ([]models.User, error) {
+	// Use gorm.G[model.<model>]()... to get built-in type safety
+	return gorm.G[models.User](s.db).
+		Preload("ProfileImage", ImageIDsOnly).
+		Find(ctx)
+}
+
+func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (models.User, error) {
+	return gorm.G[models.User](s.db).
+		Preload("ProfileImage", ImageIDsOnly).
+		Where("id = ?", id).
+		First(ctx)
+}
+
+func (s *UserService) GetByEmail(ctx context.Context, email string) (models.User, error) {
+	return gorm.G[models.User](s.db).
+		Preload("ProfileImage", ImageIDsOnly).
+		Where("email = ?", email).
+		First(ctx)
+}
+
+type CreateUserRequest struct {
+	Email     string
+	FirstName string
+	LastName  string
+	Password  string
+}
+
+func (s *UserService) Create(ctx context.Context, request CreateUserRequest) (*models.User, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(request.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+
+	user := models.User{
+		Email:        request.Email,
+		PasswordHash: string(hash),
+		FirstName:    request.FirstName,
+		LastName:     request.LastName,
+	}
+
+	// Throws error if user already exists
+	if err := gorm.G[models.User](s.db).Create(ctx, &user); err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+// TODO: Update to delete images as well
+func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
+	// Deleting a record requires some additional processing. Gorm
+	// uses soft deletion by default (see https://gorm.io/docs/delete.html#Soft-Delete).
+	rowsAffected, err := gorm.G[models.User](s.db).Where("id = ?", id).Delete(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	// No affected rows ⇒ no record existed; should return an error
+	if rowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
+
+type UpdateUserRequest struct {
+	FirstName string
+	LastName  string
+}
+
+func (s *UserService) Update(
+	ctx context.Context,
+	id uuid.UUID,
+	req UpdateUserRequest,
+) (*models.User, error) {
+
+	rows, err := gorm.G[models.User](s.db).
+		Where("id = ?", id).
+		Select("FirstName", "LastName").
+		Updates(ctx, models.User{
+			FirstName: req.FirstName,
+			LastName: req.LastName,
+		})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if rows == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	// Get updated user
+	user, err := gorm.G[models.User](s.db).Where("id = ?", id).First(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (s *UserService) UpdateProfileImage(
+	ctx context.Context,
+	id uuid.UUID,
+	imageData []byte,
+	mimeType string,
+) (uuid.UUID, error) {
+	image := models.Image{
+		OwnerID:   id,
+		OwnerType: "users",
+		Data:      imageData,
+		MimeType:  mimeType,
+	}
+
+	// Check if image already exists
+	existing, err := gorm.G[models.Image](s.db).
+		Where("owner_id = ? AND owner_type = ?", id, "users").
+		First(ctx)
+
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return uuid.Nil, err
+	}
+
+	// Image exists
+	if existing.ID != uuid.Nil {
+		_, err := gorm.G[models.Image](s.db).
+			Where("owner_id = ? AND owner_type = ?", id, "users").
+			Updates(ctx, image)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		return existing.ID, nil
+	}
+
+	// Create new
+	if err := gorm.G[models.Image](s.db).Create(ctx, &image); err != nil {
+		return uuid.Nil, err
+	}
+
+	return image.ID, nil
+}
