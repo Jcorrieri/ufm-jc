@@ -175,7 +175,7 @@ func TestSearch_MatchingQuery(t *testing.T) {
 	ctx := context.Background()
 	svc := services.NewListingService(db)
 
-	results, err := svc.Search(ctx, "title", "Textbook", 10, uuid.Nil)
+	results, err := svc.Search(ctx, "Textbook", 10, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -188,12 +188,34 @@ func TestSearch_NoMatch(t *testing.T) {
 	ctx := context.Background()
 	svc := services.NewListingService(db)
 
-	results, err := svc.Search(ctx, "title", "zzznomatchzzz", 10, uuid.Nil)
+	results, err := svc.Search(ctx, "zzznomatchzzz", 10, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 	if len(results) != 0 {
 		t.Errorf("Expected no results, got %d", len(results))
+	}
+}
+
+func TestSearch_MatchesTitleOnly(t *testing.T) {
+	ctx := context.Background()
+	svc := services.NewListingService(db)
+	listing := &models.Listing{
+		Title:       "Ordinary title",
+		Description: "description-only-search-term",
+		Price:       1,
+		SellerID:    testUser.ID,
+	}
+	if err := svc.Create(ctx, listing); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	results, err := svc.Search(ctx, "description-only-search-term", 10, uuid.Nil)
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Search() returned %d description matches, want 0", len(results))
 	}
 }
 

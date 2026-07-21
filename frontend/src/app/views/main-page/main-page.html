@@ -12,9 +12,19 @@
         matInput
         placeholder="Search marketplace..."
         [(ngModel)]="searchQuery"
-        (input)="search()"
+        (keydown.enter)="search()"
       />
     </mat-form-field>
+    <button
+      mat-flat-button
+      type="button"
+      class="search-button"
+      aria-label="Search marketplace"
+      (click)="search()"
+    >
+      <mat-icon>search</mat-icon>
+      Search
+    </button>
   </div>
 
   <app-avatar-dropdown></app-avatar-dropdown>

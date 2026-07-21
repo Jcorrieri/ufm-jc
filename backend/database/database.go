@@ -1,55 +1,26 @@
 package database
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"strconv"
-
-	// "log"
-	// "os"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
-	"github.com/google/uuid"
-
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-// Create some starter data for testing
-func SeedData(db *gorm.DB, ctx context.Context) {
-	users, err := SeedUsers(db, ctx)
+// OpenSQLite opens a SQLite database without changing its schema or data.
+func OpenSQLite(path string) (*gorm.DB, error) {
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 	if err != nil {
-		fmt.Println(err.Error())
-		return
+		return nil, fmt.Errorf("open SQLite database %q: %w", path, err)
 	}
 
-	ids := []uuid.UUID{}
-	for _, user := range users {
-		ids = append(ids, user.ID)
-	}
-
-	if err := SeedListings(db, ctx, ids); err != nil {
-		panic("Error seeding listings.")
-	}
-
-	fmt.Println("Successfully seeded database.")
+	return db, nil
 }
 
-func Connect(dbName string) *gorm.DB {
-	ctx := context.Background()
-
-	// Connect to db
-	fmt.Println("Attempting database connection...")
-
-	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
-	if err != nil {
-		panic("failed to connect database")
-	}
-	fmt.Println("Database connection established")
-
-	// Create/update tables
-	err = db.AutoMigrate(
+// Migrate applies the application's schema migrations.
+func Migrate(db *gorm.DB) error {
+	err := db.AutoMigrate(
 		&models.User{},
 		&models.PasswordResetToken{},
 		&models.Listing{},
@@ -58,21 +29,9 @@ func Connect(dbName string) *gorm.DB {
 		&models.Conversation{},
 		&models.Message{},
 	)
-
 	if err != nil {
-		panic("Failed to automigrate")
+		return fmt.Errorf("migrate database: %w", err)
 	}
 
-	shouldSeedStr := os.Getenv("SHOULD_SEED")
-
-	shouldSeed, err := strconv.ParseBool(shouldSeedStr)
-	if err != nil {
-		panic("Failed to parse SHOULD_SEED env variable.")
-	}
-
-	if shouldSeed {
-		SeedData(db, ctx)
-	}
-
-	return db
+	return nil
 }
