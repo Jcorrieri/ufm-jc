@@ -58,7 +58,6 @@ export class MainPage implements OnInit {
     const results = await firstValueFrom(
       this.http.get<Listing[]>('/api/listings', {
         params: {
-          key: request.key,
           query: request.query,
           limit: request.limit,
           cursor: request.cursor,
@@ -78,7 +77,6 @@ export class MainPage implements OnInit {
   listings: Listing[] = [];
   filteredListings: Listing[] = [];
   listingRequest: ListingRequest = {
-    key: '',
     query: '',
     limit: 20,
     cursor: NULL_UUID,
@@ -87,10 +85,8 @@ export class MainPage implements OnInit {
   // search functionality
   async search() {
     const query = this.searchQuery.toLowerCase().trim();
-    const key = 'title'; // Hardcoded for now but leaves flexibility for later
 
     const request = this.listingRequest;
-    request.key = key;
     request.query = query;
     request.cursor = NULL_UUID; // Reset cursor upon new search
 

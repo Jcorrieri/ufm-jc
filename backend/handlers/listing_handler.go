@@ -35,10 +35,9 @@ func (h *ListingHandler) GetListings(c *gin.Context) {
 
 	var listings []models.Listing
 
-	key, exists := c.GetQuery("key")
-	if exists && key != "" {
-		query := c.Query("query")
-		listings, err = h.listingService.Search(c.Request.Context(), key, query, limit, cursor)
+	query := c.Query("query")
+	if query != "" {
+		listings, err = h.listingService.Search(c.Request.Context(), query, limit, cursor)
 	} else {
 		listings, err = h.listingService.GetAll(c.Request.Context(), limit, cursor)
 	}

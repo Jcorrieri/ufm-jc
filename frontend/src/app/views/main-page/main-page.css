@@ -46,13 +46,19 @@ app-avatar-dropdown {
 .header-search {
   flex: 2; /* Gives the search bar more priority in the center */
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 8px;
   min-width: 0;
 }
 
 .search-field {
   width: 100%;
   max-width: 480px;
+}
+
+.search-button {
+  flex: 0 0 auto;
 }
 
 /* Remove the subscript/hint wrapper so the field doesn't push taller */
@@ -92,6 +98,10 @@ app-avatar-dropdown {
 
   .search-field {
     max-width: 100%; /* Use full width on mobile */
+  }
+
+  .search-button {
+    padding-inline: 12px;
   }
 
   .gator-icon {

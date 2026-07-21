@@ -57,8 +57,6 @@ Use an S3-compatible local implementation for development and tests before migra
 are explicit and separate from HTTP server startup.
 - Image BLOBs inflate the transactional database and API process memory. Uploads are read fully
 into memory, images are publicly addressable by ID, and lifecycle cleanup is incomplete.
-- `Search` interpolates a client-controlled column name into SQL. Allow-list searchable fields
-before treating this endpoint as safe.
 - WebSockets accept every origin. Restrict origins and retain participant authorization checks.
 - Auth cookies are set with `Secure=false`; production needs HTTPS-only cookies, explicit cookie
 policy, CSRF protection, and validated non-empty secrets at startup. Logout does not revoke JWTs.
@@ -72,4 +70,4 @@ for example, a client supplies the seller ID when starting a conversation.
 - Several error paths continue after writing a response, configuration errors may panic,
 and logging is unstructured.
 - The READMEs are stale in places and make unsafe claims that local SQLite eliminates exposure.
-Tests exist but coverage, fixtures, commands, and required quality gates are undocumented.
+- Tests exist but coverage, fixtures, commands, and required quality gates are undocumented.

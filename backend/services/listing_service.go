@@ -19,7 +19,6 @@ func NewListingService(db *gorm.DB) *ListingService {
 // User CURSOR to track last returned listing by ID
 func (s *ListingService) Search(
 	ctx context.Context,
-	key string,
 	query string,
 	limit int,
 	cursor uuid.UUID,
@@ -28,7 +27,7 @@ func (s *ListingService) Search(
 	queryObj := gorm.G[models.Listing](s.db).
 		Preload("Seller", nil).
 		Preload("Images", ImageIDsOnly).
-		Where(key+" LIKE ?", "%"+query+"%").
+		Where("title LIKE ?", "%"+query+"%").
 		Where("status = ?", "available").
 		Order("id DESC").
 		Limit(limit)
