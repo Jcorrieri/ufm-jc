@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestUserResponse(t * testing.T) {
+func TestUserResponse(t *testing.T) {
 	// Create a mock user, then test if the response works.
 	// Not testing w/ null fields - already checked by gorm constraints.
 	id, err := uuid.NewV7()
@@ -18,14 +18,14 @@ func TestUserResponse(t * testing.T) {
 	}
 
 	user := models.User{
-		ID: id,
-		Email: "test@ufl.edu",
+		ID:           id,
+		Email:        "test@ufl.edu",
 		PasswordHash: "password",
-		FirstName: "John",
-		LastName: "Doe",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		DeletedAt: gorm.DeletedAt{},
+		FirstName:    "John",
+		LastName:     "Doe",
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+		DeletedAt:    gorm.DeletedAt{},
 	}
 
 	response := user.GetResponse()
@@ -46,4 +46,4 @@ func TestUserResponse(t * testing.T) {
 		t.Errorf("CreatedAt mismatch: got %v, want %v", response.CreatedAt, user.CreatedAt)
 	}
 
-} 
+}

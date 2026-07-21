@@ -41,6 +41,7 @@ func RegisterUserRoutes(
 	protected.DELETE("/users/me", userHandler.DeleteUser)
 	protected.PUT("/users/me", userHandler.UpdateSettings)
 }
+
 func RegisterListingsRoutes(
 	public *gin.RouterGroup,
 	protected *gin.RouterGroup,
@@ -53,12 +54,14 @@ func RegisterListingsRoutes(
 	protected.PUT("/listings/:id", listingHandler.UpdateListing)
 	protected.DELETE("/listings/:id", listingHandler.DeleteListing)
 }
+
 func RegisterImageRoutes(
 	public *gin.RouterGroup,
 	imageHandler *handlers.ImageHandler,
 ) {
 	public.GET("/images/:imageId", imageHandler.GetImage)
 }
+
 func RegisterOrderRoutes(
 	protected *gin.RouterGroup,
 	orderHandler *handlers.OrderHandler,
@@ -66,6 +69,7 @@ func RegisterOrderRoutes(
 	protected.POST("/orders", orderHandler.CreateOrder)
 	protected.GET("/orders/me", orderHandler.GetMyOrders)
 }
+
 func RegisterChatRoutes(
 	protected *gin.RouterGroup,
 	chatHandler *handlers.ChatHandler,
@@ -87,6 +91,7 @@ func main() {
 	if sessionName == "" {
 		sessionName = "session_token"
 	}
+
 	// Services
 	authService := services.NewAuthService(db)
 	passwordResetService := services.NewPasswordResetService(db)
@@ -95,6 +100,7 @@ func main() {
 	imageService := services.NewImageService(db)
 	orderService := services.NewOrderService(db)
 	chatService := services.NewChatService(db)
+
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authService, userService, sessionName)
 	passwordResetHandler := handlers.NewPasswordResetHandler(passwordResetService)
@@ -105,14 +111,17 @@ func main() {
 	hub := services.NewHub()
 	go hub.Run() // starts the hub's goroutine — must be before any connections arrive
 	chatHandler := handlers.NewChatHandler(chatService, hub)
+
 	// Middleware
 	authMiddleware := middleware.AuthMiddleware(os.Getenv("JWT_SECRET"), sessionName)
+
 	// Routes
 	router := gin.Default()
 	api := router.Group("/api")
 	auth := api.Group("/auth")
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
+
 	RegisterAuthRoutes(auth, authHandler, authService)
 	RegisterPasswordResetRoutes(auth, passwordResetHandler)
 	RegisterUserRoutes(protected, userHandler, userService)
@@ -120,5 +129,6 @@ func main() {
 	RegisterImageRoutes(api, imageHandler)
 	RegisterOrderRoutes(protected, orderHandler)
 	RegisterChatRoutes(protected, chatHandler)
+
 	router.Run("localhost:8080")
 }

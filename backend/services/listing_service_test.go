@@ -24,7 +24,6 @@ func TestCreateListing(t *testing.T) {
 		Description: "A test listing",
 		Price:       9.99,
 		SellerID:    testUser.ID,
-
 	}
 
 	err := service.Create(ctx, listing)

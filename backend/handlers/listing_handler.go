@@ -180,11 +180,11 @@ func (h *ListingHandler) UpdateListing(c *gin.Context) {
 				return
 			}
 			newImageBatch = append(newImageBatch, services.CreateImageRequest{
-				OwnerID: listingID,
+				OwnerID:   listingID,
 				OwnerType: "listings",
-				Data:     data,
-				MimeType: mimeType,
-				Position: i,
+				Data:      data,
+				MimeType:  mimeType,
+				Position:  i,
 			})
 		}
 	}
@@ -193,9 +193,9 @@ func (h *ListingHandler) UpdateListing(c *gin.Context) {
 		c.Request.Context(),
 		listingID,
 		services.UpdateListingRequest{
-			Title: c.PostForm("title"),
+			Title:       c.PostForm("title"),
 			Description: c.PostForm("description"),
-			Price: price,
+			Price:       price,
 		},
 		newImageBatch,
 	)

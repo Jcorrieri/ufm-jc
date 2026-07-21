@@ -2,9 +2,9 @@ package utils
 
 import (
 	"errors"
-	"io"	
-	"mime/multipart"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"sync"
 )

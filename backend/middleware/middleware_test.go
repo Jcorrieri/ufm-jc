@@ -13,22 +13,22 @@ import (
 
 func TestMiddleware_TableDriven(t *testing.T) {
 	type testCase struct {
-		name			string
-		cookieName		string
-		cookieValue		string
-		providedSecret  string
-		expectedStatus	int
-		expectedBody	string
+		name           string
+		cookieName     string
+		cookieValue    string
+		providedSecret string
+		expectedStatus int
+		expectedBody   string
 	}
 
 	tests := []testCase{
 		{
-			name: "Missing Cookie",
-			cookieName: "wrong_name",
-			cookieValue: func() string { return "any" }(),
+			name:           "Missing Cookie",
+			cookieName:     "wrong_name",
+			cookieValue:    func() string { return "any" }(),
 			providedSecret: "correct_secret",
 			expectedStatus: 401,
-			expectedBody: `{"error":"Forbidden"}`,
+			expectedBody:   `{"error":"Forbidden"}`,
 		},
 		{
 			name:       "Expired Token",
@@ -57,9 +57,9 @@ func TestMiddleware_TableDriven(t *testing.T) {
 			expectedBody:   `{"error":"Session invalid or expired"}`,
 		},
 		{
-			name: 		"Valid Token",
+			name:       "Valid Token",
 			cookieName: "session_token",
-			cookieValue: func() string { 
+			cookieValue: func() string {
 				claims := jwt.RegisteredClaims{Subject: "user123"}
 				token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 				s, _ := token.SignedString([]byte("correct_secret"))
@@ -67,7 +67,7 @@ func TestMiddleware_TableDriven(t *testing.T) {
 			}(),
 			providedSecret: "correct_secret",
 			expectedStatus: 200,
-			expectedBody: ``,
+			expectedBody:   ``,
 		},
 	}
 

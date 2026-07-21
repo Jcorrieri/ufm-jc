@@ -107,7 +107,7 @@ func (s *UserService) Update(
 		Select("FirstName", "LastName").
 		Updates(ctx, models.User{
 			FirstName: req.FirstName,
-			LastName: req.LastName,
+			LastName:  req.LastName,
 		})
 
 	if err != nil {
