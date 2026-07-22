@@ -9,9 +9,11 @@ from SQLite to object storage.
 ## Current Structure
 
 - `frontend/`: Angular 21 single-page application. Views and reusable components call Angular
-services for REST and WebSocket APIs. Vitest unit specs and Cypress end-to-end specs exist.
+  services for REST and WebSocket APIs. Vitest unit specs and Cypress browser specs exist.
 - `backend/`: Go/Gin API organized into handlers, services, GORM models, middleware, database
-setup, and utilities. Tests currently focus mainly on services, models, JWTs, and middleware.
+  setup, and utilities. Tests currently focus mainly on services, models, JWTs, and middleware.
+- `.github/workflows/`: Read-only GitHub Actions CI with parallel backend and frontend jobs for
+  pushes and pull requests targeting `main` or `dev`.
 - `backend/app/`: HTTP application composition and route registration.
 - `backend/cmd/`: Separate server, migration, and seed entrypoints.
 - `backend/config/`: Centralized environment configuration loading and validation.
@@ -30,29 +32,41 @@ stored as image BLOB rows, and served through `/api/images/:imageId`.
 ## Refactoring Goals
 
 1. Clarify boundaries: keep transport concerns in handlers, business rules in services, and
-persistence behind small interfaces. Centralize typed configuration and application startup.
+   persistence behind small interfaces. Centralize typed configuration and application startup.
 2. Improve tests: add handler/API integration coverage, isolate databases per test, and expand
-frontend tests around critical user flows. Keep tests deterministic and independent of
-external image downloads.
-3. Add CI/CD: run Go formatting, vet/static checks, and tests; run npm clean install, frontend
-tests, and production build; then add Cypress against an ephemeral full stack. Require these
-checks before deployment and keep secrets in the CI provider.
+   frontend tests around critical user flows. Keep tests deterministic and independent of
+   external image downloads.
+3. Maintain CI checks for Go formatting, vet, tests, and builds plus Angular tests and builds.
+   Add Cypress only after its server orchestration and fixtures are reliable in CI.
 4. Extract image storage: define an object-storage interface, store only object keys and metadata
-in the database, validate upload size and decoded image type, and support deletion/rollback.
-Use an S3-compatible local implementation for development and tests before migrating data.
+   in the database, validate upload size and decoded image type, and support deletion/rollback.
+   Use an S3-compatible local implementation for development and tests before migrating data.
 
 ## Working Conventions
 
 - Preserve existing API behavior unless a change is intentional and covered by tests.
 - Prefer dependency-free, modular changes; discuss new dependencies before adding them.
 - Keep lines under 100 characters and favor readable names over abbreviations.
-- Run `go test ./...` from `backend/` and frontend tests/build from `frontend/` for affected work.
+- From `backend/`, run `go test ./...`, `go vet ./...`, and `go build ./...` for affected work.
+- From `frontend/`, run `npm test -- --watch=false` and `npm run build` for affected work.
+- Run Cypress locally with `npm start` and `npm run cypress:run` when browser flows change.
 - Never commit `.env`, database files, credentials, generated images, or object-store data.
 - Update this document when architecture, commands, or known risks materially change.
 
+## Frontend Test Coverage
+
+- Angular/Vitest has 39 tests in nine specs. Forgot/reset password and order history have
+  behavioral coverage; app, avatar, listing, navbar, login, and sign-up specs are creation-only
+  smoke tests.
+- Cypress exercises 89 browser scenarios with intercepted APIs across login, registration,
+  password reset, marketplace search, listing CRUD and images, auth guards, and order history.
+- Cypress runs against Angular at `http://localhost:4200`. Because most API calls are intercepted,
+  it validates browser, component, and routing behavior rather than the deployed full stack.
+- Main search, product details, profile, settings, messaging, services, and guards have limited or
+  no focused Angular unit coverage. Keep tests aligned when routes, selectors, or API calls change.
+
 ## Limitations, Security Issues, and Architectural Debt
 
-- There is no checked-in CI/CD workflow, deployment configuration, or root-level test command.
 - SQLite remains the only database adapter, although connection, migration, and seeding lifecycles
 are explicit and separate from HTTP server startup.
 - Image BLOBs inflate the transactional database and API process memory. Uploads are read fully
@@ -68,6 +82,5 @@ six-character minimum, and registration checks the email suffix without verifyin
 for example, a client supplies the seller ID when starting a conversation.
 - The in-memory chat hub supports only one API process and loses active connections on restart.
 - Several error paths continue after writing a response, configuration errors may panic,
-and logging is unstructured.
-- The READMEs are stale in places and make unsafe claims that local SQLite eliminates exposure.
-- Tests exist but coverage, fixtures, commands, and required quality gates are undocumented.
+  and logging is unstructured.
+- Cypress is not run in CI and relies on mocked APIs plus a separately started Angular server.
