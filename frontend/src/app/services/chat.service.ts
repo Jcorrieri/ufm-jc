@@ -36,13 +36,12 @@ export class ChatService {
     this.refreshSignal.update(n => n + 1);
   }
 
-  async startConversation(listingId: string, sellerId: string): Promise<Conversation> {
-    console.log('Sending body:', { listing_id: listingId, seller_id: sellerId });
+  async startConversation(listingId: string): Promise<Conversation> {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ listing_id: listingId, seller_id: sellerId }),
+      body: JSON.stringify({ listing_id: listingId }),
     });
     if (!res.ok) throw new Error('Failed to start conversation');
     return res.json();

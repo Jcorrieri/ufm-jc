@@ -29,6 +29,7 @@ var upgrader = websocket.Upgrader{
 
 // ---- Message shape over the wire ----
 type WSMessage struct {
+	ID             uuid.UUID `json:"id"`
 	ConversationID uuid.UUID `json:"conversation_id"`
 	SenderID       uuid.UUID `json:"sender_id"`
 	SenderName     string    `json:"sender_name"`
@@ -62,7 +63,11 @@ func (cl *Client) readPump(chatService *ChatService) {
 	for {
 		_, rawMsg, err := cl.conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(
+				err,
+				websocket.CloseGoingAway,
+				websocket.CloseAbnormalClosure,
+			) {
 				log.Printf("ws error: %v", err)
 			}
 			break
@@ -81,25 +86,21 @@ func (cl *Client) readPump(chatService *ChatService) {
 			Content:        content,
 		}
 
-		if err := chatService.SaveMessage(context.Background(), msg); err != nil {
+		savedMessage, err := chatService.SaveMessage(context.Background(), msg)
+		if err != nil {
 			log.Printf("failed to save message: %v", err)
 			continue
 		}
 
-		// Re-fetch with sender preloaded so we have the sender's name
-		messages, err := chatService.GetMessages(context.Background(), cl.conversationID)
-		if err != nil || len(messages) == 0 {
-			continue
-		}
-		saved := messages[len(messages)-1]
-
 		// Build the outbound payload
 		outbound := WSMessage{
-			ConversationID: cl.conversationID,
-			SenderID:       cl.userID,
-			SenderName:     saved.Sender.FirstName + " " + saved.Sender.LastName,
-			Content:        content,
-			CreatedAt:      saved.CreatedAt,
+			ID:             savedMessage.ID,
+			ConversationID: savedMessage.ConversationID,
+			SenderID:       savedMessage.SenderID,
+			SenderName: savedMessage.Sender.FirstName +
+				" " + savedMessage.Sender.LastName,
+			Content:   savedMessage.Content,
+			CreatedAt: savedMessage.CreatedAt,
 		}
 
 		data, err := json.Marshal(outbound)
@@ -205,7 +206,14 @@ func (h *Hub) Run() {
 }
 
 // ServeWs upgrades the HTTP connection and registers the new client.
-func ServeWs(hub *Hub, chatService *ChatService, w http.ResponseWriter, r *http.Request, conversationID uuid.UUID, userID uuid.UUID) {
+func ServeWs(
+	hub *Hub,
+	chatService *ChatService,
+	w http.ResponseWriter,
+	r *http.Request,
+	conversationID uuid.UUID,
+	userID uuid.UUID,
+) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("ws upgrade error: %v", err)

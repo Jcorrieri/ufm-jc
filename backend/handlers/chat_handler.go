@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/Jcorrieri/uf-marketplace/backend/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type ChatHandler struct {
@@ -19,7 +21,7 @@ func NewChatHandler(s *services.ChatService, hub *services.Hub) *ChatHandler {
 }
 
 // POST /api/conversations
-// Body: { "listing_id": "...", "seller_id": "..." }
+// Body: { "listing_id": "..." }
 func (h *ChatHandler) StartConversation(c *gin.Context) {
 	buyerID, err := uuid.Parse(c.MustGet("userID").(string))
 	if err != nil {
@@ -29,7 +31,6 @@ func (h *ChatHandler) StartConversation(c *gin.Context) {
 
 	var body struct {
 		ListingID string `json:"listing_id"`
-		SellerID  string `json:"seller_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
@@ -42,20 +43,15 @@ func (h *ChatHandler) StartConversation(c *gin.Context) {
 		return
 	}
 
-	sellerID, err := uuid.Parse(body.SellerID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seller_id"})
+	convo, err := h.chatService.GetOrCreateConversation(c.Request.Context(), buyerID, listingID)
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
 		return
-	}
-
-	// Prevent sellers from messaging themselves
-	if buyerID == sellerID {
+	case errors.Is(err, services.ErrCannotMessageSelf):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot message yourself"})
 		return
-	}
-
-	convo, err := h.chatService.GetOrCreateConversation(c.Request.Context(), buyerID, sellerID, listingID)
-	if err != nil {
+	case err != nil:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start conversation"})
 		return
 	}

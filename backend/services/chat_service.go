@@ -2,11 +2,14 @@ package services
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+var ErrCannotMessageSelf = errors.New("cannot start a conversation with yourself")
 
 type ChatService struct {
 	db *gorm.DB
@@ -21,9 +24,18 @@ func NewChatService(db *gorm.DB) *ChatService {
 func (s *ChatService) GetOrCreateConversation(
 	ctx context.Context,
 	buyerID uuid.UUID,
-	sellerID uuid.UUID,
 	listingID uuid.UUID,
 ) (models.Conversation, error) {
+	listing, err := gorm.G[models.Listing](s.db).
+		Where("id = ?", listingID).
+		First(ctx)
+	if err != nil {
+		return models.Conversation{}, err
+	}
+
+	if listing.SellerID == buyerID {
+		return models.Conversation{}, ErrCannotMessageSelf
+	}
 
 	// Try to find an existing conversation first
 	existing, err := gorm.G[models.Conversation](s.db).
@@ -44,7 +56,7 @@ func (s *ChatService) GetOrCreateConversation(
 	// None found — create a new one
 	convo := models.Conversation{
 		BuyerID:   buyerID,
-		SellerID:  sellerID,
+		SellerID:  listing.SellerID,
 		ListingID: listingID,
 	}
 
@@ -108,6 +120,18 @@ func (s *ChatService) GetMessages(
 func (s *ChatService) SaveMessage(
 	ctx context.Context,
 	msg *models.Message,
-) error {
-	return gorm.G[models.Message](s.db).Create(ctx, msg)
+) (*models.Message, error) {
+	if err := gorm.G[models.Message](s.db).Create(ctx, msg); err != nil {
+		return nil, err
+	}
+
+	savedMessage, err := gorm.G[models.Message](s.db).
+		Preload("Sender", nil).
+		Where("id = ?", msg.ID).
+		First(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &savedMessage, nil
 }

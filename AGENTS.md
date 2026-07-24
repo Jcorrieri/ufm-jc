@@ -55,9 +55,9 @@ stored as image BLOB rows, and served through `/api/images/:imageId`.
 
 ## Frontend Test Coverage
 
-- Angular/Vitest has 39 tests in nine specs. Forgot/reset password and order history have
-  behavioral coverage; app, avatar, listing, navbar, login, and sign-up specs are creation-only
-  smoke tests.
+- Angular/Vitest has 40 tests in ten specs. Forgot/reset password, order history, and the
+  listing-only conversation request have behavioral coverage; app, avatar, listing, navbar,
+  login, and sign-up specs are creation-only smoke tests.
 - Cypress exercises 89 browser scenarios with intercepted APIs across login, registration,
   password reset, marketplace search, listing CRUD and images, auth guards, and order history.
 - Cypress runs against Angular at `http://localhost:4200`. Because most API calls are intercepted,
@@ -78,8 +78,8 @@ policy, CSRF protection, and validated non-empty secrets at startup. Logout does
 behind an explicit development mode and use out-of-band delivery in deployed environments.
 - Public auth and password-reset endpoints have no visible throttling. Password policy is only a
 six-character minimum, and registration checks the email suffix without verifying ownership.
-- Listing/conversation inputs do not consistently enforce ownership and relational integrity;
-for example, a client supplies the seller ID when starting a conversation.
+- Listing and conversation inputs do not consistently enforce ownership and relational
+  integrity, although conversation sellers are now derived from their listings.
 - The in-memory chat hub supports only one API process and loses active connections on restart.
 - Several error paths continue after writing a response, configuration errors may panic,
   and logging is unstructured.
