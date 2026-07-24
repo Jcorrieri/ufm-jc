@@ -11,7 +11,8 @@ from SQLite to object storage.
 - `frontend/`: Angular 21 single-page application. Views and reusable components call Angular
   services for REST and WebSocket APIs. Vitest unit specs and Cypress browser specs exist.
 - `backend/`: Go/Gin API organized into handlers, services, GORM models, middleware, database
-  setup, and utilities. Tests currently focus mainly on services, models, JWTs, and middleware.
+  setup, and utilities. Tests cover services, models, JWTs, middleware, selected HTTP routes,
+  the chat hub, and the WebSocket handler.
 - `.github/workflows/`: Read-only GitHub Actions CI with parallel backend and frontend jobs for
   pushes and pull requests targeting `main` or `dev`.
 - `backend/app/`: HTTP application composition and route registration.
@@ -25,9 +26,10 @@ requirements.
 
 The Angular client sends requests under `/api`. Gin handlers parse HTTP input and authorization
 context, services perform business logic and GORM access, and models define persistence and API
-response shapes. Authentication uses a signed JWT in an HttpOnly cookie. Chat uses an in-memory
-WebSocket hub while persisting messages in SQLite. Uploaded JPEG/PNG files are validated in Go,
-stored as image BLOB rows, and served through `/api/images/:imageId`.
+response shapes. Authentication uses a signed JWT in an HttpOnly cookie. The chat WebSocket
+handler owns upgrades and connection pumps, persists through `ChatService`, and publishes through
+an in-memory, persistence-independent hub. Uploaded JPEG/PNG files are validated in Go, stored as
+image BLOB rows, and served through `/api/images/:imageId`.
 
 ## Refactoring Goals
 

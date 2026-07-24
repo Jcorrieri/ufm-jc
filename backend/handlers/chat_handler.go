@@ -13,11 +13,10 @@ import (
 
 type ChatHandler struct {
 	chatService *services.ChatService
-	hub         *services.Hub
 }
 
-func NewChatHandler(s *services.ChatService, hub *services.Hub) *ChatHandler {
-	return &ChatHandler{chatService: s, hub: hub}
+func NewChatHandler(chatService *services.ChatService) *ChatHandler {
+	return &ChatHandler{chatService: chatService}
 }
 
 // POST /api/conversations
@@ -122,33 +121,4 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
-}
-
-// GET /ws/chat/:id  — WebSocket upgrade
-func (h *ChatHandler) ServeWs(c *gin.Context) {
-	userID, err := uuid.Parse(c.MustGet("userID").(string))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	conversationID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid conversation ID"})
-		return
-	}
-
-	// Verify user is a participant before allowing WebSocket connection
-	convo, err := h.chatService.GetByID(c.Request.Context(), conversationID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
-		return
-	}
-
-	if userID != convo.BuyerID && userID != convo.SellerID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-		return
-	}
-
-	services.ServeWs(h.hub, h.chatService, c.Writer, c.Request, conversationID, userID)
 }

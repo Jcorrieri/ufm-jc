@@ -1,236 +1,107 @@
 package services
 
 import (
-	"context"
-	"encoding/json"
-	"log"
-	"net/http"
-	"time"
+	"sync"
 
-	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 )
 
-// ---- WebSocket tuning constants ----
-const (
-	writeWait      = 10 * time.Second
-	pongWait       = 60 * time.Second
-	pingPeriod     = (pongWait * 9) / 10
-	maxMessageSize = 4096
-)
+const subscriberBufferSize = 256
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	// Allow all origins for now — tighten in production
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
-
-// ---- Message shape over the wire ----
-type WSMessage struct {
-	ID             uuid.UUID `json:"id"`
-	ConversationID uuid.UUID `json:"conversation_id"`
-	SenderID       uuid.UUID `json:"sender_id"`
-	SenderName     string    `json:"sender_name"`
-	Content        string    `json:"content"`
-	CreatedAt      time.Time `json:"created_at"`
-}
-
-// ---- Client ----
-type Client struct {
-	hub            *Hub
-	conn           *websocket.Conn
-	send           chan []byte
+type subscription struct {
 	conversationID uuid.UUID
-	userID         uuid.UUID
+	messages       chan []byte
 }
 
-// readPump reads messages from the browser and broadcasts them.
-func (cl *Client) readPump(chatService *ChatService) {
-	defer func() {
-		cl.hub.unregister <- cl
-		cl.conn.Close()
-	}()
-
-	cl.conn.SetReadLimit(maxMessageSize)
-	cl.conn.SetReadDeadline(time.Now().Add(pongWait))
-	cl.conn.SetPongHandler(func(string) error {
-		cl.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-
-	for {
-		_, rawMsg, err := cl.conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(
-				err,
-				websocket.CloseGoingAway,
-				websocket.CloseAbnormalClosure,
-			) {
-				log.Printf("ws error: %v", err)
-			}
-			break
-		}
-
-		// Expect plain text content from the browser
-		content := string(rawMsg)
-		if content == "" {
-			continue
-		}
-
-		// Persist the message to the DB
-		msg := &models.Message{
-			ConversationID: cl.conversationID,
-			SenderID:       cl.userID,
-			Content:        content,
-		}
-
-		savedMessage, err := chatService.SaveMessage(context.Background(), msg)
-		if err != nil {
-			log.Printf("failed to save message: %v", err)
-			continue
-		}
-
-		// Build the outbound payload
-		outbound := WSMessage{
-			ID:             savedMessage.ID,
-			ConversationID: savedMessage.ConversationID,
-			SenderID:       savedMessage.SenderID,
-			SenderName: savedMessage.Sender.FirstName +
-				" " + savedMessage.Sender.LastName,
-			Content:   savedMessage.Content,
-			CreatedAt: savedMessage.CreatedAt,
-		}
-
-		data, err := json.Marshal(outbound)
-		if err != nil {
-			continue
-		}
-
-		cl.hub.broadcast <- broadcastMsg{
-			conversationID: cl.conversationID,
-			data:           data,
-		}
-	}
-}
-
-// writePump drains the send channel and writes to the browser.
-func (cl *Client) writePump() {
-	ticker := time.NewTicker(pingPeriod)
-	defer func() {
-		ticker.Stop()
-		cl.conn.Close()
-	}()
-
-	for {
-		select {
-		case message, ok := <-cl.send:
-			cl.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				cl.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			if err := cl.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				return
-			}
-
-		case <-ticker.C:
-			cl.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := cl.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return
-			}
-		}
-	}
-}
-
-// ---- Hub ----
-type broadcastMsg struct {
+type broadcastMessage struct {
 	conversationID uuid.UUID
 	data           []byte
 }
 
+// Hub manages in-memory subscriptions grouped by conversation.
 type Hub struct {
-	// rooms maps conversationID → set of connected clients
-	rooms      map[uuid.UUID]map[*Client]bool
-	broadcast  chan broadcastMsg
-	register   chan *Client
-	unregister chan *Client
+	rooms      map[uuid.UUID]map[chan []byte]struct{}
+	broadcast  chan broadcastMessage
+	register   chan subscription
+	unregister chan subscription
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		rooms:      make(map[uuid.UUID]map[*Client]bool),
-		broadcast:  make(chan broadcastMsg),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
+		rooms:      make(map[uuid.UUID]map[chan []byte]struct{}),
+		broadcast:  make(chan broadcastMessage),
+		register:   make(chan subscription),
+		unregister: make(chan subscription),
 	}
 }
 
-// Run is the Hub's main goroutine — call this once at startup.
+// Subscribe registers a buffered message channel for a conversation.
+// The returned unsubscribe function is safe to call more than once.
+func (h *Hub) Subscribe(conversationID uuid.UUID) (<-chan []byte, func()) {
+	messages := make(chan []byte, subscriberBufferSize)
+	subscription := subscription{
+		conversationID: conversationID,
+		messages:       messages,
+	}
+	h.register <- subscription
+
+	var unsubscribeOnce sync.Once
+	unsubscribe := func() {
+		unsubscribeOnce.Do(func() {
+			h.unregister <- subscription
+		})
+	}
+
+	return messages, unsubscribe
+}
+
+// Publish sends a message to every active subscriber in a conversation.
+func (h *Hub) Publish(conversationID uuid.UUID, data []byte) {
+	h.broadcast <- broadcastMessage{
+		conversationID: conversationID,
+		data:           data,
+	}
+}
+
+// Run processes subscriptions and broadcasts. Call it once at startup.
 func (h *Hub) Run() {
 	for {
 		select {
-
-		case client := <-h.register:
-			room := client.conversationID
+		case subscriber := <-h.register:
+			room := subscriber.conversationID
 			if h.rooms[room] == nil {
-				h.rooms[room] = make(map[*Client]bool)
+				h.rooms[room] = make(map[chan []byte]struct{})
 			}
-			h.rooms[room][client] = true
+			h.rooms[room][subscriber.messages] = struct{}{}
 
-		case client := <-h.unregister:
-			room := client.conversationID
-			if _, ok := h.rooms[room][client]; ok {
-				delete(h.rooms[room], client)
-				close(client.send)
-				// Clean up empty rooms
-				if len(h.rooms[room]) == 0 {
-					delete(h.rooms, room)
-				}
-			}
+		case subscriber := <-h.unregister:
+			h.removeSubscriber(subscriber)
 
-		case msg := <-h.broadcast:
-			// Send to every client in the conversation's room
-			for client := range h.rooms[msg.conversationID] {
+		case message := <-h.broadcast:
+			for messages := range h.rooms[message.conversationID] {
 				select {
-				case client.send <- msg.data:
+				case messages <- message.data:
 				default:
-					// Client is too slow / disconnected — drop and remove
-					close(client.send)
-					delete(h.rooms[msg.conversationID], client)
+					close(messages)
+					delete(h.rooms[message.conversationID], messages)
 				}
+			}
+			if len(h.rooms[message.conversationID]) == 0 {
+				delete(h.rooms, message.conversationID)
 			}
 		}
 	}
 }
 
-// ServeWs upgrades the HTTP connection and registers the new client.
-func ServeWs(
-	hub *Hub,
-	chatService *ChatService,
-	w http.ResponseWriter,
-	r *http.Request,
-	conversationID uuid.UUID,
-	userID uuid.UUID,
-) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("ws upgrade error: %v", err)
+func (h *Hub) removeSubscriber(subscriber subscription) {
+	room := h.rooms[subscriber.conversationID]
+	if _, exists := room[subscriber.messages]; !exists {
 		return
 	}
 
-	client := &Client{
-		hub:            hub,
-		conn:           conn,
-		send:           make(chan []byte, 256),
-		conversationID: conversationID,
-		userID:         userID,
+	delete(room, subscriber.messages)
+	close(subscriber.messages)
+	if len(room) == 0 {
+		delete(h.rooms, subscriber.conversationID)
 	}
-
-	hub.register <- client
-
-	// Each client gets two goroutines — one to read, one to write
-	go client.writePump()
-	go client.readPump(chatService)
 }

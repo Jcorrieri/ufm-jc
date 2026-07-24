@@ -52,11 +52,15 @@ func RegisterOrderRoutes(protected *gin.RouterGroup, orderHandler *handlers.Orde
 	protected.GET("/orders/me", orderHandler.GetMyOrders)
 }
 
-func RegisterChatRoutes(protected *gin.RouterGroup, chatHandler *handlers.ChatHandler) {
+func RegisterChatRoutes(
+	protected *gin.RouterGroup,
+	chatHandler *handlers.ChatHandler,
+	chatWebSocketHandler *handlers.ChatWebSocketHandler,
+) {
 	protected.POST("/conversations", chatHandler.StartConversation)
 	protected.GET("/conversations", chatHandler.GetConversations)
 	protected.GET("/conversations/:id/messages", chatHandler.GetMessages)
-	protected.GET("/ws/chat/:id", chatHandler.ServeWs)
+	protected.GET("/ws/chat/:id", chatWebSocketHandler.Serve)
 }
 
 // NewRouter constructs the HTTP application from explicit dependencies.
@@ -80,8 +84,8 @@ func NewRouter(db *gorm.DB, configuration config.Config) *gin.Engine {
 	imageHandler := handlers.NewImageHandler(imageService)
 	orderHandler := handlers.NewOrderHandler(orderService, listingService)
 	hub := services.NewHub()
-	go hub.Run()
-	chatHandler := handlers.NewChatHandler(chatService, hub)
+	chatHandler := handlers.NewChatHandler(chatService)
+	chatWebSocketHandler := handlers.NewChatWebSocketHandler(chatService, hub)
 
 	authMiddleware := middleware.AuthMiddleware(
 		configuration.JWTSecret,
@@ -100,7 +104,8 @@ func NewRouter(db *gorm.DB, configuration config.Config) *gin.Engine {
 	RegisterListingsRoutes(api, protected, listingHandler)
 	RegisterImageRoutes(api, imageHandler)
 	RegisterOrderRoutes(protected, orderHandler)
-	RegisterChatRoutes(protected, chatHandler)
+	RegisterChatRoutes(protected, chatHandler, chatWebSocketHandler)
 
+	go hub.Run()
 	return router
 }
