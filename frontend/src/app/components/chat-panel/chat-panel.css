@@ -109,6 +109,10 @@
   flex: 1;
 }
 
+.chat-input-field textarea {
+  resize: none;
+}
+
 app-chat-panel {
   flex: 1;
   display: flex;

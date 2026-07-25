@@ -29,6 +29,7 @@ export class ChatPanel implements OnInit, OnDestroy,  OnChanges {
 
   messages: Message[] = [];
   newMessage = '';
+  readonly maxMessageLength = 750;
   currentUserId = '';
   loading = true;   
   
@@ -75,13 +76,13 @@ export class ChatPanel implements OnInit, OnDestroy,  OnChanges {
 
   send() {
     const content = this.newMessage.trim();
-    if (!content) return;
+    if (!content || content.length > this.maxMessageLength) return;
     this.chatService.sendMessage(content);
     this.newMessage = '';
   }
 
   onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       this.send();
     }
