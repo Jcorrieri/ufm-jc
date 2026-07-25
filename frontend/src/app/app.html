@@ -1,2 +1,4 @@
 <router-outlet />
-<app-chat-widget />
+@if (showChatWidget()) {
+  <app-chat-widget />
+}

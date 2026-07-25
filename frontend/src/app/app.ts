@@ -1,6 +1,7 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
 import { ChatWidget } from './components/chat-widget/chat-widget';
+import { ChatWidgetService } from './services/chat-widget.service';
 import { filter } from 'rxjs/operators';
 
 @Component({
@@ -11,8 +12,20 @@ import { filter } from 'rxjs/operators';
 })
 export class App implements OnInit {
   private authRoutes = ['/login', '/sign-up', '/'];
+  private widgetHiddenRoutes = new Set([
+    '/',
+    '/login',
+    '/sign-up',
+    '/forgot-password',
+    '/reset-password',
+    '/messages',
+  ]);
+  readonly showChatWidget = signal(false);
 
-  constructor(private router: Router) {}
+  constructor(
+    private router: Router,
+    private chatWidgetService: ChatWidgetService,
+  ) {}
 
   ngOnInit() {
     // Apply theme on every route change
@@ -20,10 +33,12 @@ export class App implements OnInit {
       .pipe(filter(e => e instanceof NavigationEnd))
       .subscribe((e: any) => {
         this.applyTheme(e.urlAfterRedirects);
+        this.updateChatWidgetVisibility(e.urlAfterRedirects);
       });
 
     // Apply on initial load
     this.applyTheme(window.location.pathname);
+    this.updateChatWidgetVisibility(this.router.url);
 
     // Keep in sync if OS theme changes
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -49,5 +64,16 @@ export class App implements OnInit {
     } else {
       body.classList.add(saved === 'dark' ? 'theme-dark' : 'theme-light');
     }
+  }
+
+  private updateChatWidgetVisibility(url: string) {
+    const path = url.split(/[?#]/, 1)[0];
+    const shouldShowChatWidget = !this.widgetHiddenRoutes.has(path);
+
+    if (!shouldShowChatWidget) {
+      this.chatWidgetService.close();
+    }
+
+    this.showChatWidget.set(shouldShowChatWidget);
   }
 }

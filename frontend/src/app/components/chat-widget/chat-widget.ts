@@ -1,8 +1,7 @@
-import { Component, OnInit, effect, ElementRef, HostListener, signal } from '@angular/core';
+import { Component, effect, ElementRef, HostListener, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
-import { Router } from '@angular/router';
 import { ChatWidgetService } from '../../services/chat-widget.service';
 import { ChatService, Conversation } from '../../services/chat.service';
 import { AuthService } from '../../services/auth.service';
@@ -15,7 +14,7 @@ import { ChatPanel } from '../chat-panel/chat-panel';
   templateUrl: './chat-widget.html',
   styleUrl: './chat-widget.css',
 })
-export class ChatWidget implements OnInit {
+export class ChatWidget {
   conversations = signal<Conversation[]>([]);
   loading = signal(false);
 
@@ -23,7 +22,6 @@ export class ChatWidget implements OnInit {
     public widget: ChatWidgetService,
     private chatService: ChatService,
     private authService: AuthService,
-    private router: Router,
     private el: ElementRef,
   ) {
     effect(() => {
@@ -39,8 +37,6 @@ export class ChatWidget implements OnInit {
       this.widget.close();
     }
   }
-
-  async ngOnInit() {}
 
   async toggle() {
     this.widget.toggle();
@@ -71,11 +67,6 @@ export class ChatWidget implements OnInit {
     this.chatService.clearHandlers();
     this.widget.backToList();
     this.loadConversations();
-  }
-
-  get isAuthPage(): boolean {
-    const url = this.router.url;
-    return url === '/login' || url === '/sign-up' || url === '/';
   }
 
   getOtherName(convo: Conversation): string {

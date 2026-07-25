@@ -1,4 +1,4 @@
-import { Injectable,signal } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 
 export interface Conversation {
   id: string;
@@ -27,8 +27,6 @@ export interface Message {
 export class ChatService {
   private socket: WebSocket | null = null;
   private messageHandlers: ((msg: Message) => void)[] = [];
-  private lastMessageSignal = signal<Message | null>(null);
-  readonly lastMessage = this.lastMessageSignal.asReadonly();
   private refreshSignal = signal(0);
   readonly refresh = this.refreshSignal.asReadonly();
 
@@ -64,15 +62,12 @@ export class ChatService {
 
   connect(conversationId: string): void {
     this.disconnect();
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = 'localhost:8080';
-    const url = `${protocol}://${host}/api/ws/chat/${conversationId}`;
+    const url = this.createWebSocketUrl(conversationId);
     this.socket = new WebSocket(url);
     this.socket.onmessage = (event) => {
       try {
         const msg: Message = JSON.parse(event.data);
         this.messageHandlers.forEach(handler => handler(msg));
-        this.lastMessageSignal.set(msg);
       } catch {
         console.error('Failed to parse incoming message', event.data);
       }
@@ -102,5 +97,14 @@ export class ChatService {
       this.socket.close();
       this.socket = null;
     }
+  }
+
+  private createWebSocketUrl(
+    conversationId: string,
+    pageUrl = window.location.href,
+  ): string {
+    const url = new URL(`/api/ws/chat/${encodeURIComponent(conversationId)}`, pageUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString();
   }
 }
