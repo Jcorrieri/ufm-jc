@@ -50,7 +50,6 @@ export class ChatPanel implements OnInit, OnDestroy,  OnChanges {
   this.chatService.connect(this.conversation.id);
   this.chatService.onMessage((msg: Message) => {
     this.messages.push(msg);
-    this.chatService.triggerRefresh();
     this.cdr.detectChanges();
     setTimeout(() => this.scrollToBottom(), 0);
   });

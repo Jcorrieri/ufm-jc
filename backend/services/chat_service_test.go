@@ -180,4 +180,82 @@ func TestSaveMessageReturnsPersistedMessageWithSender(t *testing.T) {
 			fixture.buyer.FirstName,
 		)
 	}
+
+	updatedConversation, err := fixture.service.GetByID(ctx, conversation.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if !updatedConversation.UpdatedAt.Equal(savedMessage.CreatedAt) {
+		t.Errorf(
+			"conversation UpdatedAt = %v, want %v",
+			updatedConversation.UpdatedAt,
+			savedMessage.CreatedAt,
+		)
+	}
+}
+
+func TestGetUserConversationsOrdersByLatestMessage(t *testing.T) {
+	fixture := newChatTestFixture(t)
+	ctx := context.Background()
+	firstConversation, err := fixture.service.GetOrCreateConversation(
+		ctx,
+		fixture.buyer.ID,
+		fixture.listing.ID,
+	)
+	if err != nil {
+		t.Fatalf("GetOrCreateConversation() error = %v", err)
+	}
+
+	secondListing := models.Listing{
+		Title:       "Chair",
+		Description: "A sturdy chair",
+		Price:       15,
+		SellerID:    fixture.seller.ID,
+	}
+	if err := gorm.G[models.Listing](fixture.db).Create(ctx, &secondListing); err != nil {
+		t.Fatalf("create second listing: %v", err)
+	}
+	secondConversation, err := fixture.service.GetOrCreateConversation(
+		ctx,
+		fixture.buyer.ID,
+		secondListing.ID,
+	)
+	if err != nil {
+		t.Fatalf("GetOrCreateConversation() second error = %v", err)
+	}
+
+	firstMessage := &models.Message{
+		ConversationID: firstConversation.ID,
+		SenderID:       fixture.buyer.ID,
+		Content:        "First conversation message",
+	}
+	if _, err := fixture.service.SaveMessage(ctx, firstMessage); err != nil {
+		t.Fatalf("SaveMessage() first error = %v", err)
+	}
+	secondMessage := &models.Message{
+		ConversationID: secondConversation.ID,
+		SenderID:       fixture.buyer.ID,
+		Content:        "Most recent message",
+	}
+	if _, err := fixture.service.SaveMessage(ctx, secondMessage); err != nil {
+		t.Fatalf("SaveMessage() second error = %v", err)
+	}
+
+	conversations, err := fixture.service.GetUserConversations(ctx, fixture.buyer.ID)
+	if err != nil {
+		t.Fatalf("GetUserConversations() error = %v", err)
+	}
+	if len(conversations) != 2 {
+		t.Fatalf("conversation count = %d, want 2", len(conversations))
+	}
+	if conversations[0].ID != secondConversation.ID {
+		t.Errorf(
+			"first conversation ID = %s, want %s",
+			conversations[0].ID,
+			secondConversation.ID,
+		)
+	}
+	if response := conversations[0].GetResponse(); response.LastMessage != secondMessage.Content {
+		t.Errorf("LastMessage = %q, want %q", response.LastMessage, secondMessage.Content)
+	}
 }

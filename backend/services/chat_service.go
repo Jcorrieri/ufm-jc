@@ -83,7 +83,10 @@ func (s *ChatService) GetUserConversations(
 		Preload("Buyer", nil).
 		Preload("Seller", nil).
 		Preload("Listing", nil).
-		Preload("Messages", nil).
+		Preload("Messages", func(db gorm.PreloadBuilder) error {
+			db.Order("created_at ASC")
+			return nil
+		}).
 		Where("buyer_id = ? OR seller_id = ?", userID, userID).
 		Order("updated_at DESC").
 		Find(ctx)
@@ -121,14 +124,25 @@ func (s *ChatService) SaveMessage(
 	ctx context.Context,
 	msg *models.Message,
 ) (*models.Message, error) {
-	if err := gorm.G[models.Message](s.db).Create(ctx, msg); err != nil {
-		return nil, err
-	}
+	var savedMessage models.Message
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := gorm.G[models.Message](tx).Create(ctx, msg); err != nil {
+			return err
+		}
 
-	savedMessage, err := gorm.G[models.Message](s.db).
-		Preload("Sender", nil).
-		Where("id = ?", msg.ID).
-		First(ctx)
+		if err := tx.Model(&models.Conversation{}).
+			Where("id = ?", msg.ConversationID).
+			Update("updated_at", msg.CreatedAt).Error; err != nil {
+			return err
+		}
+
+		var err error
+		savedMessage, err = gorm.G[models.Message](tx).
+			Preload("Sender", nil).
+			Where("id = ?", msg.ID).
+			First(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

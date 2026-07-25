@@ -1,12 +1,13 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
+import { AuthService } from '../services/auth.service';
 
 export const authGuard: CanActivateFn = async () => {
   const router = inject(Router);
+  const authService = inject(AuthService);
 
   try {
-    const res = await fetch('/api/users/me', { credentials: 'include' });
-    if (res.ok) {
+    if (await authService.loadUser()) {
       return true;
     }
   } catch {

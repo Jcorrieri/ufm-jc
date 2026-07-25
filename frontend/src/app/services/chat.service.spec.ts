@@ -55,6 +55,35 @@ describe('ChatService', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ listing_id: 'listing-1' }),
     });
+    expect(chatService.conversations()).toEqual([conversation]);
+  });
+
+  it('shares concurrent conversation refresh requests', async () => {
+    const conversations = [{
+      id: 'conversation-1',
+      listing_id: 'listing-1',
+      listing_title: 'Calculus Textbook',
+      buyer_id: 'buyer-1',
+      buyer_name: 'Buyer One',
+      seller_id: 'seller-1',
+      seller_name: 'Seller One',
+      last_message: '',
+      updated_at: '2026-07-23T12:00:00Z',
+    }];
+    const fetchSpy = vi.spyOn(window, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(conversations), { status: 200 }),
+    );
+    const chatService = new ChatService();
+
+    const firstRefresh = chatService.refreshConversations();
+    const secondRefresh = chatService.refreshConversations();
+
+    expect(await Promise.all([firstRefresh, secondRefresh])).toEqual([
+      conversations,
+      conversations,
+    ]);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(chatService.conversations()).toEqual(conversations);
   });
 
   it('creates WebSocket URLs from the current frontend origin', () => {
@@ -74,7 +103,7 @@ describe('ChatService', () => {
     ).toBe('wss://marketplace.example/api/ws/chat/conversation-1');
   });
 
-  it('dispatches incoming WebSocket messages to registered handlers', () => {
+  it('updates conversation summaries before dispatching WebSocket messages', async () => {
     const sockets: MockWebSocket[] = [];
     class RecordingWebSocket extends MockWebSocket {
       constructor(url: string) {
@@ -92,8 +121,33 @@ describe('ChatService', () => {
       content: 'Hello',
       created_at: '2026-07-24T12:00:00Z',
     };
+    const olderConversation: Conversation = {
+      id: 'conversation-2',
+      listing_id: 'listing-2',
+      listing_title: 'Desk',
+      buyer_id: 'buyer-1',
+      buyer_name: 'Buyer One',
+      seller_id: 'seller-1',
+      seller_name: 'Seller One',
+      last_message: 'Older message',
+      updated_at: '2026-07-23T10:00:00Z',
+    };
+    const activeConversation: Conversation = {
+      ...olderConversation,
+      id: 'conversation-1',
+      listing_id: 'listing-1',
+      last_message: 'Previous message',
+      updated_at: '2026-07-23T09:00:00Z',
+    };
+    const fetchSpy = vi.spyOn(window, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify([olderConversation, activeConversation]),
+        { status: 200 },
+      ),
+    );
     const handler = vi.fn();
     const chatService = new ChatService();
+    await chatService.refreshConversations();
     chatService.onMessage(handler);
 
     chatService.connect('conversation-1');
@@ -105,5 +159,11 @@ describe('ChatService', () => {
     expect(sockets[0].url).toContain('/api/ws/chat/conversation-1');
     expect(sockets[0].url).not.toContain('localhost:8080');
     expect(handler).toHaveBeenCalledWith(message);
+    expect(chatService.conversations()[0]).toMatchObject({
+      id: 'conversation-1',
+      last_message: 'Hello',
+      updated_at: '2026-07-24T12:00:00Z',
+    });
+    expect(fetchSpy).toHaveBeenCalledOnce();
   });
 });

@@ -1,4 +1,4 @@
-import { Component, effect, ElementRef, HostListener, signal } from '@angular/core';
+import { Component, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -15,20 +15,19 @@ import { ChatPanel } from '../chat-panel/chat-panel';
   styleUrl: './chat-widget.css',
 })
 export class ChatWidget {
-  conversations = signal<Conversation[]>([]);
-  loading = signal(false);
-
   constructor(
     public widget: ChatWidgetService,
     private chatService: ChatService,
     private authService: AuthService,
     private el: ElementRef,
-  ) {
-    effect(() => {
-      const _ = this.chatService.refresh();
-      this.loadConversations();
-      
-    });
+  ) {}
+
+  get conversations() {
+    return this.chatService.conversations;
+  }
+
+  get loading() {
+    return this.chatService.conversationsLoading;
   }
 
   @HostListener('document:click', ['$event'])
@@ -41,20 +40,16 @@ export class ChatWidget {
   async toggle() {
     this.widget.toggle();
     if (this.widget.state() === 'list') {
-      await this.loadConversations();
+      await this.refreshConversations();
     }
   }
 
-  async loadConversations() {
+  async refreshConversations() {
     if (!this.authService.currentUser()) return;
-    this.loading.set(true);
     try {
-      const data = await this.chatService.getConversations();
-      this.conversations.set(data ?? []);
+      await this.chatService.refreshConversations();
     } catch {
-      this.conversations.set([]);
-    } finally {
-      this.loading.set(false);
+      // Preserve the last successful list if refreshing fails.
     }
   }
 
@@ -66,7 +61,7 @@ export class ChatWidget {
     this.chatService.disconnect();
     this.chatService.clearHandlers();
     this.widget.backToList();
-    this.loadConversations();
+    this.refreshConversations();
   }
 
   getOtherName(convo: Conversation): string {

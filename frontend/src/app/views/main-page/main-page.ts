@@ -11,7 +11,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 // Our imports
-import { AuthService } from '../../services/auth.service';
 import { AvatarDropdown } from '../../components/avatar-dropdown/avatar-dropdown';
 import { Listing, ListingRequest, NULL_UUID } from '../../components/listing/listing';
 
@@ -34,18 +33,11 @@ import { Listing, ListingRequest, NULL_UUID } from '../../components/listing/lis
 export class MainPage implements OnInit {
   constructor(
     private router: Router,
-    private authService: AuthService,
     private http: HttpClient,
     private cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit() {
-    try {
-      await this.authService.loadUser();
-    } catch {
-      // user load failed, continue anyway
-    }
-
     const results = await this.fetchListings(this.listingRequest);
 
     this.listings = results;

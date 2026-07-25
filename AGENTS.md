@@ -28,8 +28,10 @@ The Angular client sends requests under `/api`. Gin handlers parse HTTP input an
 context, services perform business logic and GORM access, and models define persistence and API
 response shapes. Authentication uses a signed JWT in an HttpOnly cookie. The chat WebSocket
 handler owns upgrades and connection pumps, persists through `ChatService`, and publishes through
-an in-memory, persistence-independent hub. Uploaded JPEG/PNG files are validated in Go, stored as
-image BLOB rows, and served through `/api/images/:imageId`.
+an in-memory, persistence-independent hub. The frontend `AuthService` owns the in-memory current
+user cache, and the frontend `ChatService` owns shared conversation summaries updated by active
+WebSocket messages. Uploaded JPEG/PNG files are validated in Go, stored as image BLOB rows, and
+served through `/api/images/:imageId`.
 
 ## Refactoring Goals
 
@@ -57,9 +59,9 @@ image BLOB rows, and served through `/api/images/:imageId`.
 
 ## Frontend Test Coverage
 
-- Angular/Vitest has 40 tests in ten specs. Forgot/reset password, order history, and the
-  listing-only conversation request have behavioral coverage; app, avatar, listing, navbar,
-  login, and sign-up specs are creation-only smoke tests.
+- Angular/Vitest has 54 tests in thirteen specs. Forgot/reset password, order history,
+  authentication caching, and conversation synchronization have behavioral coverage; app,
+  avatar, listing, navbar, login, and sign-up specs are creation-only smoke tests.
 - Cypress exercises 89 browser scenarios with intercepted APIs across login, registration,
   password reset, marketplace search, listing CRUD and images, auth guards, and order history.
 - Cypress runs against Angular at `http://localhost:4200`. Because most API calls are intercepted,

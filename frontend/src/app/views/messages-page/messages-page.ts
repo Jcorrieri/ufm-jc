@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, effect } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -16,34 +16,27 @@ import { AvatarDropdown } from '../../components/avatar-dropdown/avatar-dropdown
   styleUrl: './messages-page.css',
 })
 export class MessagesPage implements OnInit {
-  conversations = signal<Conversation[]>([]);
   activeConversation = signal<Conversation | null>(null);
-  loading = signal(true);
 
   constructor(
     private chatService: ChatService,
     private authService: AuthService,
     private router: Router,
-  ) {
-    // effect must be created in constructor (injection context)
-    effect(() => {
-      const _ = this.chatService.refresh();
-      this.loadConversations();
-    });
+  ) {}
+
+  get conversations() {
+    return this.chatService.conversations;
+  }
+
+  get loading() {
+    return this.chatService.conversationsLoading;
   }
 
   async ngOnInit() {
-    await this.authService.loadUser();
-    await this.loadConversations();
-    this.loading.set(false);
-  }
-
-  async loadConversations() {
     try {
-      const data = await this.chatService.getConversations();
-      this.conversations.set(data ?? []);
+      await this.chatService.refreshConversations();
     } catch {
-      this.conversations.set([]);
+      // Preserve the last successful list if refreshing fails.
     }
   }
 

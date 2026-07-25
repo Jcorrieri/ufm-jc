@@ -76,11 +76,11 @@ describe('OrderHistoryPage', () => {
 
   // ---------- ngOnInit / data loading ----------
 
-  it('should load user and orders on init', async () => {
+  it('should load orders on init without reloading the guarded user', async () => {
     const orders = [makeOrder()];
     await setup(orders);
 
-    expect(authServiceMock.loadUser).toHaveBeenCalled();
+    expect(authServiceMock.loadUser).not.toHaveBeenCalled();
     expect(orderServiceMock.getOrders).toHaveBeenCalled();
     expect(component.orders()).toEqual(orders);
     expect(component.loading()).toBe(false);
@@ -90,31 +90,6 @@ describe('OrderHistoryPage', () => {
     await setup(new Error('network down'));
 
     expect(component.orders()).toEqual([]);
-    expect(component.loading()).toBe(false);
-  });
-
-  it('should still load orders when loadUser rejects', async () => {
-    authServiceMock = makeAuthMock(vi.fn().mockRejectedValue(new Error('no user')));
-    orderServiceMock = { getOrders: vi.fn().mockResolvedValue([makeOrder()]) };
-
-    await TestBed.configureTestingModule({
-      imports: [OrderHistoryPage],
-      providers: [
-        provideRouter([]),
-        provideHttpClient(),
-        { provide: AuthService, useValue: authServiceMock },
-        { provide: OrderService, useValue: orderServiceMock },
-      ],
-    }).compileComponents();
-
-    fixture = TestBed.createComponent(OrderHistoryPage);
-    component = fixture.componentInstance;
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    expect(component.orders().length).toBe(1);
     expect(component.loading()).toBe(false);
   });
 

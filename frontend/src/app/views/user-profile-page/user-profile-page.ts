@@ -44,32 +44,9 @@ export class UserProfilePage implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.loadUser();
-  }
-
-  private async loadUser() {
-    try {
-      const res = await fetch('/api/users/me', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        const u: CurrentUser = {
-          id: data.id,
-          firstName: data.first_name,
-          lastName: data.last_name,
-          email: data.email,
-          image_id: data.image_id,
-          createdAt: data.created_at,
-        };
-        this.authService.setUser(u);
-        this.user = u;
-        if (data.image_id) {
-          this.profileImageUrl = `/api/images/${data.image_id}?t=${Date.now()}`;
-        }
-        this.cdr.detectChanges();
-      }
-    } catch {
-      this.user = this.authService.currentUser();
-      this.cdr.detectChanges();
+    this.user = this.authService.currentUser();
+    if (this.user?.image_id) {
+      this.profileImageUrl = `/api/images/${this.user.image_id}?t=${Date.now()}`;
     }
   }
 
@@ -118,7 +95,7 @@ export class UserProfilePage implements OnInit {
 
       // Refresh the image
       if (this.user) {
-        this.user.image_id = body.image_id;
+        this.user = { ...this.user, image_id: body.image_id };
         this.profileImageUrl = `/api/images/${this.user.image_id}?t=${Date.now()}`;
         this.authService.setUser(this.user);
       }
@@ -174,8 +151,11 @@ export class UserProfilePage implements OnInit {
       }
 
       if (this.user) {
-        this.user.firstName = body.first_name;
-        this.user.lastName = body.last_name;
+        this.user = {
+          ...this.user,
+          firstName: body.first_name,
+          lastName: body.last_name,
+        };
         this.authService.setUser(this.user);
       }
 

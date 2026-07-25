@@ -4,7 +4,6 @@ import { CommonModule, CurrencyPipe } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 
-import { AuthService } from '../../services/auth.service';
 import { OrderService } from '../../services/order.service';
 import { AvatarDropdown } from '../../components/avatar-dropdown/avatar-dropdown';
 import { Listing } from '../../components/listing/listing';
@@ -26,7 +25,6 @@ export class ProductDetailPage implements OnInit {
 
   constructor(
     private router: Router,
-    private authService: AuthService,
     private orderService: OrderService,
     private cdr: ChangeDetectorRef,
     private chatService: ChatService,
@@ -34,12 +32,6 @@ export class ProductDetailPage implements OnInit {
   ) {}
 
   async ngOnInit() {
-    try {
-      await this.authService.loadUser();
-    } catch {
-      // continue
-    }
-
     // Read listing data passed via router state from main page
     const nav = this.router.getCurrentNavigation?.() ?? history.state;
     const state = nav?.listing ? nav : (history.state as { listing?: Listing });
