@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/Jcorrieri/uf-marketplace/backend/services"
@@ -19,14 +20,12 @@ func TestCreateListing(t *testing.T) {
 	ctx := context.Background()
 	service := services.NewListingService(db)
 
-	listing := &models.Listing{
+	listing, err := service.Create(ctx, services.CreateListingRequest{
 		Title:       "Test Textbook",
 		Description: "A test listing",
 		Price:       9.99,
 		SellerID:    testUser.ID,
-	}
-
-	err := service.Create(ctx, listing)
+	})
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -34,6 +33,10 @@ func TestCreateListing(t *testing.T) {
 		t.Error("Expected listing to have an ID after creation")
 	}
 
+	listing, err = service.Publish(ctx, listing.ID, testUser.ID)
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
 	testListing = *listing
 }
 
@@ -96,7 +99,7 @@ func TestGetAll_LimitIsRespected(t *testing.T) {
 
 	// Create extra listings to ensure limit is meaningful
 	for range 3 {
-		_ = svc.Create(ctx, &models.Listing{
+		_, _ = svc.Create(ctx, services.CreateListingRequest{
 			Title:    "Extra Listing",
 			Price:    1.00,
 			SellerID: testUser.ID,
@@ -200,13 +203,13 @@ func TestSearch_NoMatch(t *testing.T) {
 func TestSearch_MatchesTitleOnly(t *testing.T) {
 	ctx := context.Background()
 	svc := services.NewListingService(db)
-	listing := &models.Listing{
+	_, err := svc.Create(ctx, services.CreateListingRequest{
 		Title:       "Ordinary title",
 		Description: "description-only-search-term",
 		Price:       1,
 		SellerID:    testUser.ID,
-	}
-	if err := svc.Create(ctx, listing); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
@@ -216,6 +219,64 @@ func TestSearch_MatchesTitleOnly(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("Search() returned %d description matches, want 0", len(results))
+	}
+}
+
+func TestPublishListingRejectsUnresolvedImages(t *testing.T) {
+	ctx := context.Background()
+	svc := services.NewListingService(db)
+	listing, err := svc.Create(ctx, services.CreateListingRequest{
+		Title: "Pending image", Description: "Description", Price: 1, SellerID: testUser.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	image := models.Image{
+		UploadedByID:      testUser.ID,
+		ListingID:         &listing.ID,
+		Status:            models.ImageStatusPending,
+		ObjectKey:         "test/pending/" + listing.ID.String(),
+		ExpectedSizeBytes: 1,
+		ExpectedMimeType:  "image/png",
+		UploadExpiresAt:   time.Now().Add(time.Minute),
+	}
+	if err := gorm.G[models.Image](db).Create(ctx, &image); err != nil {
+		t.Fatalf("create pending image: %v", err)
+	}
+
+	if _, err := svc.Publish(ctx, listing.ID, testUser.ID); !errors.Is(
+		err,
+		services.ErrInvalidImageState,
+	) {
+		t.Fatalf("Publish() error = %v, want invalid image state", err)
+	}
+}
+
+func TestGetListingPreloadsOnlyReadyAttachedImages(t *testing.T) {
+	ctx := context.Background()
+	svc := services.NewListingService(db)
+	listing, err := svc.Create(ctx, services.CreateListingRequest{
+		Title: "Filtered images", Description: "Description", Price: 1, SellerID: testUser.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	now := time.Now().UTC()
+	images := []models.Image{
+		testListingImage(listing.ID, "ready", models.ImageStatusReady, nil),
+		testListingImage(listing.ID, "pending", models.ImageStatusPending, nil),
+		testListingImage(listing.ID, "detached", models.ImageStatusReady, &now),
+	}
+	if err := gorm.G[models.Image](db).CreateInBatches(ctx, &images, len(images)); err != nil {
+		t.Fatalf("create images: %v", err)
+	}
+
+	result, err := svc.GetByID(ctx, listing.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if len(result.Images) != 1 || result.Images[0].ObjectKey != "test/ready" {
+		t.Errorf("Images = %#v, want only ready attached image", result.Images)
 	}
 }
 
@@ -251,16 +312,16 @@ func TestDeleteListing(t *testing.T) {
 	ctx := context.Background()
 	svc := services.NewListingService(db)
 
-	listing := &models.Listing{
+	listing, err := svc.Create(ctx, services.CreateListingRequest{
 		Title:    "To Be Deleted",
 		Price:    5.00,
 		SellerID: testUser.ID,
-	}
-	if err := svc.Create(ctx, listing); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
 
-	err := svc.Delete(ctx, listing.ID)
+	err = svc.Delete(ctx, listing.ID)
 	if err != nil {
 		t.Fatalf("Expected no error on delete, got %v", err)
 	}
@@ -288,5 +349,23 @@ func TestDeleteListing_NotFound(t *testing.T) {
 	err := svc.Delete(ctx, uuid.Nil)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Errorf("Expected error for missing record")
+	}
+}
+
+func testListingImage(
+	listingID uuid.UUID,
+	name string,
+	status models.ImageStatus,
+	detachedAt *time.Time,
+) models.Image {
+	return models.Image{
+		UploadedByID:      testUser.ID,
+		ListingID:         &listingID,
+		Status:            status,
+		ObjectKey:         "test/" + name,
+		ExpectedSizeBytes: 1,
+		ExpectedMimeType:  "image/png",
+		UploadExpiresAt:   time.Now().Add(time.Minute),
+		DetachedAt:        detachedAt,
 	}
 }

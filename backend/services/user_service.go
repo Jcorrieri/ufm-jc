@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/google/uuid"
@@ -27,20 +26,20 @@ func NewUserService(db *gorm.DB) *UserService {
 func (s *UserService) GetAll(ctx context.Context) ([]models.User, error) {
 	// Use gorm.G[model.<model>]()... to get built-in type safety
 	return gorm.G[models.User](s.db).
-		Preload("ProfileImage", ImageIDsOnly).
+		Preload("ProfileImage", nil).
 		Find(ctx)
 }
 
 func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (models.User, error) {
 	return gorm.G[models.User](s.db).
-		Preload("ProfileImage", ImageIDsOnly).
+		Preload("ProfileImage", nil).
 		Where("id = ?", id).
 		First(ctx)
 }
 
 func (s *UserService) GetByEmail(ctx context.Context, email string) (models.User, error) {
 	return gorm.G[models.User](s.db).
-		Preload("ProfileImage", ImageIDsOnly).
+		Preload("ProfileImage", nil).
 		Where("email = ?", email).
 		First(ctx)
 }
@@ -52,7 +51,10 @@ type CreateUserRequest struct {
 	Password  string
 }
 
-func (s *UserService) Create(ctx context.Context, request CreateUserRequest) (*models.User, error) {
+func (s *UserService) Create(
+	ctx context.Context,
+	request CreateUserRequest,
+) (*models.User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(request.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -125,45 +127,4 @@ func (s *UserService) Update(
 	}
 
 	return &user, nil
-}
-
-func (s *UserService) UpdateProfileImage(
-	ctx context.Context,
-	id uuid.UUID,
-	imageData []byte,
-	mimeType string,
-) (uuid.UUID, error) {
-	image := models.Image{
-		OwnerID:   id,
-		OwnerType: "users",
-		Data:      imageData,
-		MimeType:  mimeType,
-	}
-
-	// Check if image already exists
-	existing, err := gorm.G[models.Image](s.db).
-		Where("owner_id = ? AND owner_type = ?", id, "users").
-		First(ctx)
-
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return uuid.Nil, err
-	}
-
-	// Image exists
-	if existing.ID != uuid.Nil {
-		_, err := gorm.G[models.Image](s.db).
-			Where("owner_id = ? AND owner_type = ?", id, "users").
-			Updates(ctx, image)
-		if err != nil {
-			return uuid.Nil, err
-		}
-		return existing.ID, nil
-	}
-
-	// Create new
-	if err := gorm.G[models.Image](s.db).Create(ctx, &image); err != nil {
-		return uuid.Nil, err
-	}
-
-	return image.ID, nil
 }

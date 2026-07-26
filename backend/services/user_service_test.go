@@ -113,7 +113,10 @@ func TestCreate_Success(t *testing.T) {
 	}
 
 	// Password must be stored as a hash, never plaintext
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword(
+		[]byte(user.PasswordHash),
+		[]byte(req.Password),
+	); err != nil {
 		t.Errorf("password hash does not match original password: %v", err)
 	}
 
@@ -224,39 +227,5 @@ func TestUpdate_NotFound(t *testing.T) {
 	}
 	if err != gorm.ErrRecordNotFound {
 		t.Errorf("expected gorm.ErrRecordNotFound, got %v", err)
-	}
-}
-
-// --- UpdateProfileImage ---
-
-func TestUpdateProfileImage_Create(t *testing.T) {
-	svc := newUserService()
-
-	imageData := []byte{0xFF, 0xD8, 0xFF} // minimal JPEG header bytes
-	imageID, err := svc.UpdateProfileImage(ctx(), testUser.ID, imageData, "image/jpeg")
-	if err != nil {
-		t.Fatalf("UpdateProfileImage (create) returned unexpected error: %v", err)
-	}
-	if imageID == uuid.Nil {
-		t.Error("expected a valid image UUID, got Nil")
-	}
-}
-
-func TestUpdateProfileImage_Update(t *testing.T) {
-	svc := newUserService()
-
-	// First call creates the image
-	first, err := svc.UpdateProfileImage(ctx(), testUser.ID, []byte{0x01}, "image/png")
-	if err != nil {
-		t.Fatalf("UpdateProfileImage first call failed: %v", err)
-	}
-
-	// Second call should update, returning the same image ID
-	second, err := svc.UpdateProfileImage(ctx(), testUser.ID, []byte{0x02}, "image/png")
-	if err != nil {
-		t.Fatalf("UpdateProfileImage second call failed: %v", err)
-	}
-	if first != second {
-		t.Errorf("expected same image ID on update: first=%v second=%v", first, second)
 	}
 }

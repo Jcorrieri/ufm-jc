@@ -10,15 +10,17 @@ import (
 type User struct {
 	// Using UUID v7; See https://uuid7.com
 	ID uuid.UUID `gorm:"type:uuid;primaryKey"`
-	// use a partial index to handle issues when reusing unique fields from soft-deleted entities (https://sqlite.org/partialindex.html).
-	Email        string `gorm:"uniqueIndex:idx_email_active,where:deleted_at IS NULL;size:255;not null"`
-	PasswordHash string `json:"-" gorm:"not null"`
-	FirstName    string `gorm:"not null"`
-	LastName     string `gorm:"not null"`
-	ProfileImage Image  `json:"image" gorm:"polymorphic:Owner;constraint:OnDelete:CASCADE;"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
+	// Use a partial index so soft-deleted email addresses can be reused.
+	// See https://sqlite.org/partialindex.html.
+	Email          string     `gorm:"uniqueIndex:idx_email_active,where:deleted_at IS NULL;not null"`
+	PasswordHash   string     `json:"-" gorm:"not null"`
+	FirstName      string     `gorm:"not null"`
+	LastName       string     `gorm:"not null"`
+	ProfileImageID *uuid.UUID `gorm:"type:uuid;index"`
+	ProfileImage   *Image     `json:"-" gorm:"foreignKey:ProfileImageID"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      gorm.DeletedAt `gorm:"index"`
 }
 
 // NOTE: https://gorm.io/docs/hooks.html
@@ -40,7 +42,9 @@ type UserResponse struct {
 
 func (u *User) GetResponse() UserResponse {
 	var imageID *uuid.UUID
-	if u.ProfileImage.ID != uuid.Nil {
+	if u.ProfileImageID != nil {
+		imageID = u.ProfileImageID
+	} else if u.ProfileImage != nil && u.ProfileImage.ID != uuid.Nil {
 		imageID = &u.ProfileImage.ID
 	}
 	return UserResponse{

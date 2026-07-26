@@ -54,7 +54,8 @@ $ go run ./cmd/migrate
 
 3.) Optionally seed local sample data
 
-This will download a few images for use in the seed data (listings).
+This creates image-free development listings. Object-backed seed images will be added with the
+object-store adapter.
 
 ```
 $ go run ./cmd/seed

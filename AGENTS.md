@@ -30,8 +30,9 @@ response shapes. Authentication uses a signed JWT in an HttpOnly cookie. The cha
 handler owns upgrades and connection pumps, persists through `ChatService`, and publishes through
 an in-memory, persistence-independent hub. The frontend `AuthService` owns the in-memory current
 user cache, and the frontend `ChatService` owns shared conversation summaries updated by active
-WebSocket messages. Uploaded JPEG/PNG files are validated in Go, stored as image BLOB rows, and
-served through `/api/images/:imageId`.
+WebSocket messages. Images use metadata-only rows linked to uploaders, listings, user profiles,
+and order snapshots. The image coordinator exposes lifecycle endpoints behind an object-store
+interface and validates JPEG/PNG streams without additional dependencies.
 
 ## Refactoring Goals
 
@@ -42,15 +43,13 @@ served through `/api/images/:imageId`.
    external image downloads.
 3. Maintain CI checks for Go formatting, vet, tests, and builds plus Angular tests and builds.
    Add Cypress only after its server orchestration and fixtures are reliable in CI.
-4. Extract image storage: define an object-storage interface, store only object keys and metadata
-   in the database, validate upload size and decoded image type, and support deletion/rollback.
-   Use an S3-compatible local implementation for development and tests before migrating data.
+4. Complete image storage: implement an S3-compatible object-store adapter, direct-upload
+   authorization, background cleanup/deletion, and frontend integration against the metadata-only
+   image API.
 
 ## Working Conventions
 
 - Preserve existing API behavior unless a change is intentional and covered by tests.
-- Prefer dependency-free, modular changes; discuss new dependencies before adding them.
-- Keep lines under 100 characters and favor readable names over abbreviations.
 - From `backend/`, run `go test ./...`, `go vet ./...`, and `go build ./...` for affected work.
 - From `frontend/`, run `npm test -- --watch=false` and `npm run build` for affected work.
 - Run Cypress locally with `npm start` and `npm run cypress:run` when browser flows change.
@@ -73,8 +72,9 @@ served through `/api/images/:imageId`.
 
 - SQLite remains the only database adapter, although connection, migration, and seeding lifecycles
 are explicit and separate from HTTP server startup.
-- Image BLOBs inflate the transactional database and API process memory. Uploads are read fully
-into memory, images are publicly addressable by ID, and lifecycle cleanup is incomplete.
+- The metadata-only image API has no production object-store adapter or background lifecycle
+workers yet. Existing local databases containing image BLOBs must be recreated, and the Angular
+client still uses the former multipart upload flow until its follow-up migration.
 - WebSockets accept every origin. Restrict origins and retain participant authorization checks.
 - Auth cookies are set with `Secure=false`; production needs HTTPS-only cookies, explicit cookie
 policy, CSRF protection, and validated non-empty secrets at startup. Logout does not revoke JWTs.

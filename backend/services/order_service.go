@@ -33,7 +33,7 @@ func (s *OrderService) CreateFromListing(
 			return err
 		}
 
-		if currentListing.Status != "available" {
+		if currentListing.Status != models.ListingStatusAvailable {
 			return gorm.ErrRecordNotFound // Will be caught as 409 Conflict in handler
 		}
 
@@ -64,7 +64,9 @@ func (s *OrderService) CreateFromListing(
 		}
 
 		// Mark the listing as sold
-		rowsAffected, err := gorm.G[models.Listing](tx).Where("id = ?", listing.ID).Update(ctx, "status", "sold")
+		rowsAffected, err := gorm.G[models.Listing](tx).
+			Where("id = ?", listing.ID).
+			Update(ctx, "status", models.ListingStatusSold)
 		if err != nil {
 			return err
 		}
@@ -84,7 +86,10 @@ func (s *OrderService) CreateFromListing(
 	return createdOrder, nil
 }
 
-func (s *OrderService) GetByBuyerID(ctx context.Context, buyerID uuid.UUID) ([]models.Order, error) {
+func (s *OrderService) GetByBuyerID(
+	ctx context.Context,
+	buyerID uuid.UUID,
+) ([]models.Order, error) {
 	return gorm.G[models.Order](s.db).
 		Where("buyer_id = ?", buyerID).
 		Order("purchased_at DESC").

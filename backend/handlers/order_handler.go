@@ -79,7 +79,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	}
 
 	// Check if listing is still available
-	if listing.Status != "available" {
+	if listing.Status != models.ListingStatusAvailable {
 		c.JSON(http.StatusConflict, gin.H{"error": "Listing is no longer available"})
 		return
 	}
@@ -90,7 +90,8 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		&listing,
 	)
 	if err != nil {
-		// If error is record not found (from status check in transaction), listing is no longer available
+		// A missing row from the transactional status check means the listing
+		// is no longer available.
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusConflict, gin.H{"error": "Listing is no longer available"})
 			return

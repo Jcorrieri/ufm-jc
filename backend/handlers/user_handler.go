@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/services"
-	"github.com/Jcorrieri/uf-marketplace/backend/utils"
 	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
@@ -110,33 +109,4 @@ func (h *UserHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user.GetResponse())
-}
-
-// PUT /api/users/me/profile-image
-func (h *UserHandler) UploadProfileImage(c *gin.Context) {
-	id, err := uuid.Parse(c.MustGet("userID").(string))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
-		return
-	}
-
-	fileHeader, err := c.FormFile("image")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No image provided"})
-		return
-	}
-
-	data, mimeType, err := utils.ProcessImageFile(fileHeader)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	imageID, err := h.userService.UpdateProfileImage(c.Request.Context(), id, data, mimeType)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Profile image updated", "image_id": imageID})
 }

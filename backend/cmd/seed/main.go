@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
-	"time"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/config"
 	"github.com/Jcorrieri/uf-marketplace/backend/database"
@@ -21,10 +19,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	imageSource := database.PicsumImageSource{
-		Client: &http.Client{Timeout: 30 * time.Second},
-	}
-	if err := database.Seed(context.Background(), db, imageSource); err != nil {
+	if err := database.Seed(context.Background(), db); err != nil {
 		log.Fatal(err)
 	}
 }
