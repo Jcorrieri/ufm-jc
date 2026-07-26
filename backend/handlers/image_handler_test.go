@@ -53,9 +53,9 @@ func newImageHandlerTestRouter(t *testing.T) (*gin.Engine, uuid.UUID) {
 		c.Set("userID", user.ID.String())
 		handler.BeginUpload(c)
 	})
-	router.POST("/images/:imageId/detach", func(c *gin.Context) {
+	router.DELETE("/images/:imageId", func(c *gin.Context) {
 		c.Set("userID", user.ID.String())
-		handler.DetachImage(c)
+		handler.DeleteImage(c)
 	})
 	return router, user.ID
 }
@@ -98,14 +98,26 @@ func TestImageHandlerReportsUnavailableObjectStore(t *testing.T) {
 	}
 }
 
-func TestImageHandlerRejectsInvalidDetachID(t *testing.T) {
+func TestImageHandlerRejectsInvalidDeleteID(t *testing.T) {
 	router, _ := newImageHandlerTestRouter(t)
-	request := httptest.NewRequest(http.MethodPost, "/images/not-a-uuid/detach", nil)
+	request := httptest.NewRequest(http.MethodDelete, "/images/not-a-uuid", nil)
 	response := httptest.NewRecorder()
 
 	router.ServeHTTP(response, request)
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
+func TestImageHandlerDoesNotExposeDetachRoute(t *testing.T) {
+	router, _ := newImageHandlerTestRouter(t)
+	request := httptest.NewRequest(http.MethodPost, "/images/not-a-uuid/detach", nil)
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }

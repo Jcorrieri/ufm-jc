@@ -160,8 +160,16 @@ func TestImageServiceCompletesProfileUpload(t *testing.T) {
 	}
 }
 
-func TestImageServiceMarksFailedVerification(t *testing.T) {
+func TestImageServiceDetachesFailedListingImage(t *testing.T) {
 	ctx := context.Background()
+	listingService := services.NewListingService(db)
+	listing, err := listingService.Create(ctx, services.CreateListingRequest{
+		Title: "Failed image listing", Description: "Description",
+		Price: 10, SellerID: testUser.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
 	store := &fakeObjectStore{
 		authorization: services.UploadAuthorization{URL: "https://upload.example"},
 		metadata:      services.ObjectMetadata{SizeBytes: 5, MimeType: "image/png"},
@@ -173,7 +181,8 @@ func TestImageServiceMarksFailedVerification(t *testing.T) {
 		&fakeImageVerifier{err: wantError},
 	)
 	begin, err := imageService.BeginUpload(ctx, testUser.ID, services.BeginImageUploadRequest{
-		ExpectedSize: 5, ExpectedMimeType: "image/png",
+		ListingID: listingID(listing.ID), ExpectedSize: 5,
+		ExpectedMimeType: "image/png",
 	})
 	if err != nil {
 		t.Fatalf("BeginUpload() error = %v", err)
@@ -190,8 +199,8 @@ func TestImageServiceMarksFailedVerification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMetadata() error = %v", err)
 	}
-	if image.Status != models.ImageStatusFailed {
-		t.Errorf("status = %q, want failed", image.Status)
+	if image.Status != models.ImageStatusFailed || image.DetachedAt == nil {
+		t.Errorf("image = %#v, want failed and detached", image)
 	}
 }
 
@@ -310,11 +319,11 @@ func TestImageServiceRetriesTransientStorageFailure(t *testing.T) {
 	}
 }
 
-func TestImageServiceDetachesBeforeDeletion(t *testing.T) {
+func TestImageServiceRemovesListingImage(t *testing.T) {
 	ctx := context.Background()
 	listingService := services.NewListingService(db)
 	listing, err := listingService.Create(ctx, services.CreateListingRequest{
-		Title: "Detach listing", Description: "Description", Price: 10, SellerID: testUser.ID,
+		Title: "Remove listing", Description: "Description", Price: 10, SellerID: testUser.ID,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -331,18 +340,8 @@ func TestImageServiceDetachesBeforeDeletion(t *testing.T) {
 		t.Fatalf("BeginUpload() error = %v", err)
 	}
 
-	if err := imageService.MarkForDeletion(
-		ctx,
-		testUser.ID,
-		begin.Image.ID,
-	); !errors.Is(err, services.ErrImageStillReferenced) {
-		t.Fatalf("MarkForDeletion() error = %v, want referenced", err)
-	}
-	if err := imageService.Detach(ctx, testUser.ID, begin.Image.ID); err != nil {
-		t.Fatalf("Detach() error = %v", err)
-	}
-	if err := imageService.MarkForDeletion(ctx, testUser.ID, begin.Image.ID); err != nil {
-		t.Fatalf("MarkForDeletion() after detach error = %v", err)
+	if err := imageService.Remove(ctx, testUser.ID, begin.Image.ID); err != nil {
+		t.Fatalf("Remove() error = %v", err)
 	}
 	image, err := imageService.GetMetadata(ctx, testUser.ID, begin.Image.ID)
 	if err != nil {
@@ -350,6 +349,126 @@ func TestImageServiceDetachesBeforeDeletion(t *testing.T) {
 	}
 	if image.Status != models.ImageStatusDeleting || image.DetachedAt == nil {
 		t.Errorf("image = %#v, want detached and deleting", image)
+	}
+	if err := imageService.Remove(ctx, testUser.ID, begin.Image.ID); err != nil {
+		t.Fatalf("idempotent Remove() error = %v", err)
+	}
+}
+
+func TestImageServiceRemovesProfileImage(t *testing.T) {
+	ctx := context.Background()
+	store := &fakeObjectStore{
+		authorization: services.UploadAuthorization{URL: "https://upload.example"},
+		metadata:      services.ObjectMetadata{SizeBytes: 5, MimeType: "image/jpeg"},
+	}
+	verifier := &fakeImageVerifier{result: utils.VerifiedImage{
+		SizeBytes: 5, MimeType: "image/jpeg", Width: 10, Height: 10,
+		ChecksumSHA256: strings.Repeat("e", 64),
+	}}
+	imageService := services.NewImageService(db, store, verifier)
+	begin, err := imageService.BeginUpload(ctx, testUser.ID, services.BeginImageUploadRequest{
+		ExpectedSize: 5, ExpectedMimeType: "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("BeginUpload() error = %v", err)
+	}
+	if _, err := imageService.CompleteUpload(ctx, testUser.ID, begin.Image.ID); err != nil {
+		t.Fatalf("CompleteUpload() error = %v", err)
+	}
+
+	if err := imageService.Remove(ctx, testUser.ID, begin.Image.ID); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	user, err := services.NewUserService(db).GetByID(ctx, testUser.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if user.ProfileImageID != nil {
+		t.Errorf("ProfileImageID = %v, want nil", user.ProfileImageID)
+	}
+	image, err := imageService.GetMetadata(ctx, testUser.ID, begin.Image.ID)
+	if err != nil {
+		t.Fatalf("GetMetadata() error = %v", err)
+	}
+	if image.Status != models.ImageStatusDeleting {
+		t.Errorf("status = %q, want deleting", image.Status)
+	}
+}
+
+func TestImageServiceRejectsRemovalWhileVerifying(t *testing.T) {
+	ctx := context.Background()
+	imageService := services.NewImageService(
+		db,
+		&fakeObjectStore{
+			authorization: services.UploadAuthorization{URL: "https://upload.example"},
+		},
+		&fakeImageVerifier{},
+	)
+	begin, err := imageService.BeginUpload(ctx, testUser.ID, services.BeginImageUploadRequest{
+		ExpectedSize: 5, ExpectedMimeType: "image/png",
+	})
+	if err != nil {
+		t.Fatalf("BeginUpload() error = %v", err)
+	}
+	if err := db.Model(&models.Image{}).
+		Where("id = ?", begin.Image.ID).
+		Update("status", models.ImageStatusVerifying).Error; err != nil {
+		t.Fatalf("set verifying status: %v", err)
+	}
+
+	err = imageService.Remove(ctx, testUser.ID, begin.Image.ID)
+	if !errors.Is(err, services.ErrInvalidImageState) {
+		t.Fatalf("Remove() error = %v, want invalid state", err)
+	}
+}
+
+func TestImageServiceRetainsImageReferencedByOrder(t *testing.T) {
+	ctx := context.Background()
+	listingService := services.NewListingService(db)
+	listing, err := listingService.Create(ctx, services.CreateListingRequest{
+		Title: "Ordered listing", Description: "Description",
+		Price: 10, SellerID: testUser.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	store := &fakeObjectStore{
+		authorization: services.UploadAuthorization{URL: "https://upload.example"},
+		metadata:      services.ObjectMetadata{SizeBytes: 5, MimeType: "image/png"},
+	}
+	verifier := &fakeImageVerifier{result: utils.VerifiedImage{
+		SizeBytes: 5, MimeType: "image/png", Width: 10, Height: 10,
+		ChecksumSHA256: strings.Repeat("d", 64),
+	}}
+	imageService := services.NewImageService(db, store, verifier)
+	begin, err := imageService.BeginUpload(ctx, testUser.ID, services.BeginImageUploadRequest{
+		ListingID: listingID(listing.ID), ExpectedSize: 5,
+		ExpectedMimeType: "image/png",
+	})
+	if err != nil {
+		t.Fatalf("BeginUpload() error = %v", err)
+	}
+	if _, err := imageService.CompleteUpload(ctx, testUser.ID, begin.Image.ID); err != nil {
+		t.Fatalf("CompleteUpload() error = %v", err)
+	}
+
+	order := models.Order{
+		BuyerID: testUser.ID, ListingID: listing.ID, Title: listing.Title,
+		FirstImageID: &begin.Image.ID, Status: "Completed", PurchasedAt: time.Now().UTC(),
+	}
+	if err := db.Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+
+	if err := imageService.Remove(ctx, testUser.ID, begin.Image.ID); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	image, err := imageService.GetMetadata(ctx, testUser.ID, begin.Image.ID)
+	if err != nil {
+		t.Fatalf("GetMetadata() error = %v", err)
+	}
+	if image.Status != models.ImageStatusReady || image.DetachedAt == nil {
+		t.Errorf("image = %#v, want detached and ready", image)
 	}
 }
 

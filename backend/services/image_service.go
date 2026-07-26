@@ -23,7 +23,6 @@ var (
 	ErrInvalidImageState      = errors.New("invalid image state")
 	ErrInvalidImageMetadata   = errors.New("invalid image metadata")
 	ErrImageVerification      = errors.New("image verification failed")
-	ErrImageStillReferenced   = errors.New("image is still referenced")
 	ErrObjectStoreUnavailable = errors.New("object store is unavailable")
 )
 
@@ -107,8 +106,11 @@ func (s *ImageService) BeginUpload(
 		},
 	)
 	if err != nil {
-		s.hardDeleteMetadata(ctx, image.ID)
-		return nil, err
+		cleanupErr := s.db.WithContext(ctx).
+			Unscoped().
+			Delete(&models.Image{}, "id = ?", image.ID).
+			Error
+		return nil, errors.Join(err, cleanupErr)
 	}
 
 	return &BeginImageUploadResult{
@@ -122,7 +124,7 @@ func (s *ImageService) CompleteUpload(
 	actorID uuid.UUID,
 	imageID uuid.UUID,
 ) (*models.Image, error) {
-	image, err := s.GetImageByID(ctx, imageID)
+	image, err := s.getImageByID(ctx, s.db, imageID)
 	if err != nil {
 		return nil, err
 	}
@@ -148,12 +150,14 @@ func (s *ImageService) CompleteUpload(
 
 	verified, err := s.verifyObject(ctx, image)
 	if err != nil {
-		if isDeterministicVerificationError(err) {
-			s.markFailed(ctx, imageID)
+		var transitionErr error
+		if errors.Is(err, ErrInvalidImageMetadata) ||
+			errors.Is(err, ErrImageVerification) {
+			transitionErr = s.markFailed(ctx, image)
 		} else {
-			s.resetPending(ctx, imageID)
+			transitionErr = s.resetPending(ctx, imageID)
 		}
-		return nil, err
+		return nil, errors.Join(err, transitionErr)
 	}
 
 	now := time.Now().UTC()
@@ -174,32 +178,32 @@ func (s *ImageService) CompleteUpload(
 			return ErrInvalidImageState
 		}
 		if image.ListingID == nil {
-			result := tx.Model(&models.User{}).
+			rows, err := gorm.G[models.User](tx).
 				Where("id = ?", actorID).
-				Update("profile_image_id", imageID)
-			if result.Error != nil {
-				return result.Error
+				Update(ctx, "profile_image_id", imageID)
+			if err != nil {
+				return err
 			}
-			if result.RowsAffected == 0 {
+			if rows == 0 {
 				return gorm.ErrRecordNotFound
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		s.resetPending(ctx, imageID)
-		return nil, err
+		return nil, errors.Join(err, s.resetPending(ctx, imageID))
 	}
 
-	ready, err := s.GetImageByID(ctx, imageID)
+	ready, err := s.getImageByID(ctx, s.db, imageID)
 	return &ready, err
 }
 
-func (s *ImageService) GetImageByID(
+func (s *ImageService) getImageByID(
 	ctx context.Context,
+	db *gorm.DB,
 	imageID uuid.UUID,
 ) (models.Image, error) {
-	return gorm.G[models.Image](s.db).Where("id = ?", imageID).First(ctx)
+	return gorm.G[models.Image](db).Where("id = ?", imageID).First(ctx)
 }
 
 func (s *ImageService) GetMetadata(
@@ -207,7 +211,7 @@ func (s *ImageService) GetMetadata(
 	actorID uuid.UUID,
 	imageID uuid.UUID,
 ) (*models.Image, error) {
-	image, err := s.GetImageByID(ctx, imageID)
+	image, err := s.getImageByID(ctx, s.db, imageID)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +225,7 @@ func (s *ImageService) GetDownloadURL(
 	ctx context.Context,
 	imageID uuid.UUID,
 ) (string, error) {
-	image, err := s.GetImageByID(ctx, imageID)
+	image, err := s.getImageByID(ctx, s.db, imageID)
 	if err != nil {
 		return "", err
 	}
@@ -232,56 +236,59 @@ func (s *ImageService) GetDownloadURL(
 	return s.objectStore.AuthorizeDownload(ctx, image.ObjectKey, expiresAt)
 }
 
-func (s *ImageService) Detach(
+func (s *ImageService) Remove(
 	ctx context.Context,
 	actorID uuid.UUID,
 	imageID uuid.UUID,
 ) error {
-	image, err := s.GetMetadata(ctx, actorID, imageID)
-	if err != nil {
-		return err
-	}
-	if image.ListingID == nil || image.DetachedAt != nil {
-		return ErrInvalidImageState
-	}
-	now := time.Now().UTC()
-	_, err = gorm.G[models.Image](s.db).
-		Where("id = ?", imageID).
-		Update(ctx, "detached_at", now)
-	return err
-}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		image, err := s.getImageByID(ctx, tx, imageID)
+		if err != nil {
+			return err
+		}
+		if image.UploadedByID != actorID {
+			return ErrImageNotOwned
+		}
+		if image.Status == models.ImageStatusDeleting {
+			return nil
+		}
+		if image.Status == models.ImageStatusVerifying {
+			return ErrInvalidImageState
+		}
 
-func (s *ImageService) MarkForDeletion(
-	ctx context.Context,
-	actorID uuid.UUID,
-	imageID uuid.UUID,
-) error {
-	image, err := s.GetMetadata(ctx, actorID, imageID)
-	if err != nil {
-		return err
-	}
-	if image.Status == models.ImageStatusDeleting {
+		updates := map[string]any{}
+		if image.ListingID != nil && image.DetachedAt == nil {
+			updates["detached_at"] = time.Now().UTC()
+		}
+
+		if _, err := gorm.G[models.User](tx).
+			Where("id = ? AND profile_image_id = ?", actorID, imageID).
+			Update(ctx, "profile_image_id", nil); err != nil {
+			return err
+		}
+
+		hasOrderReference, err := s.hasOrderReference(ctx, tx, imageID)
+		if err != nil {
+			return err
+		}
+		if !hasOrderReference {
+			updates["status"] = models.ImageStatusDeleting
+		}
+		if len(updates) == 0 {
+			return nil
+		}
+
+		result := tx.Model(&models.Image{}).
+			Where("id = ?", imageID).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
 		return nil
-	}
-	if image.Status == models.ImageStatusVerifying {
-		return ErrInvalidImageState
-	}
-	if image.ListingID != nil && image.DetachedAt == nil {
-		return ErrImageStillReferenced
-	}
-
-	referenced, err := s.isReferenced(ctx, imageID)
-	if err != nil {
-		return err
-	}
-	if referenced {
-		return ErrImageStillReferenced
-	}
-
-	_, err = gorm.G[models.Image](s.db).
-		Where("id = ?", imageID).
-		Update(ctx, "status", models.ImageStatusDeleting)
-	return err
+	})
 }
 
 func (s *ImageService) verifyObject(
@@ -335,43 +342,43 @@ func (s *ImageService) authorizeDraftListing(
 	return nil
 }
 
-func (s *ImageService) isReferenced(ctx context.Context, imageID uuid.UUID) (bool, error) {
-	var count int64
-	if err := s.db.WithContext(ctx).Model(&models.User{}).
-		Where("profile_image_id = ?", imageID).
-		Count(&count).Error; err != nil {
-		return false, err
-	}
-	if count > 0 {
-		return true, nil
-	}
-	if err := s.db.WithContext(ctx).Model(&models.Order{}).
+func (s *ImageService) hasOrderReference(
+	ctx context.Context,
+	db *gorm.DB,
+	imageID uuid.UUID,
+) (bool, error) {
+	count, err := gorm.G[models.Order](db).
 		Where("first_image_id = ?", imageID).
-		Count(&count).Error; err != nil {
-		return false, err
+		Count(ctx, "id")
+	return count > 0, err
+}
+
+func (s *ImageService) markFailed(ctx context.Context, image models.Image) error {
+	updates := map[string]any{"status": models.ImageStatusFailed}
+	if image.ListingID != nil {
+		updates["detached_at"] = time.Now().UTC()
 	}
-	return count > 0, nil
+	result := s.db.WithContext(ctx).
+		Model(&models.Image{}).
+		Where("id = ? AND status = ?", image.ID, models.ImageStatusVerifying).
+		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrInvalidImageState
+	}
+	return nil
 }
 
-func (s *ImageService) markFailed(ctx context.Context, imageID uuid.UUID) {
-	_, _ = gorm.G[models.Image](s.db).
-		Where("id = ?", imageID).
-		Update(ctx, "status", models.ImageStatusFailed)
-}
-
-func (s *ImageService) resetPending(ctx context.Context, imageID uuid.UUID) {
-	_, _ = gorm.G[models.Image](s.db).
+func (s *ImageService) resetPending(ctx context.Context, imageID uuid.UUID) error {
+	rows, err := gorm.G[models.Image](s.db).
 		Where("id = ? AND status = ?", imageID, models.ImageStatusVerifying).
 		Update(ctx, "status", models.ImageStatusPending)
-}
-
-func isDeterministicVerificationError(err error) bool {
-	return errors.Is(err, ErrInvalidImageMetadata) ||
-		errors.Is(err, ErrImageVerification)
-}
-
-func (s *ImageService) hardDeleteMetadata(ctx context.Context, imageID uuid.UUID) {
-	_ = s.db.WithContext(ctx).Unscoped().Delete(&models.Image{}, "id = ?", imageID).Error
+	if err == nil && rows == 0 {
+		return ErrInvalidImageState
+	}
+	return err
 }
 
 func createObjectKey(

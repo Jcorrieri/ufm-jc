@@ -151,11 +151,11 @@ func (s *ListingService) Publish(
 	sellerID uuid.UUID,
 ) (*models.Listing, error) {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var unresolvedImages int64
-		if err := tx.Model(&models.Image{}).
+		unresolvedImages, err := gorm.G[models.Image](tx).
 			Where("listing_id = ? AND detached_at IS NULL", id).
 			Where("status <> ?", models.ImageStatusReady).
-			Count(&unresolvedImages).Error; err != nil {
+			Count(ctx, "id")
+		if err != nil {
 			return err
 		}
 		if unresolvedImages > 0 {

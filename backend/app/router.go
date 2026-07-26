@@ -52,7 +52,6 @@ func RegisterImageRoutes(
 	public.GET("/images/:imageId", imageHandler.GetImage)
 	protected.POST("/images/uploads", imageHandler.BeginUpload)
 	protected.POST("/images/:imageId/complete", imageHandler.CompleteUpload)
-	protected.POST("/images/:imageId/detach", imageHandler.DetachImage)
 	protected.GET("/images/:imageId/status", imageHandler.GetStatus)
 	protected.DELETE("/images/:imageId", imageHandler.DeleteImage)
 }

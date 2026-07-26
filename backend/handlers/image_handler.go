@@ -91,26 +91,13 @@ func (h *ImageHandler) GetStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, image.GetResponse())
 }
 
-// POST /api/images/:imageId/detach
-func (h *ImageHandler) DetachImage(c *gin.Context) {
-	actorID, imageID, ok := imageRequestIDs(c)
-	if !ok {
-		return
-	}
-	if err := h.imageService.Detach(c.Request.Context(), actorID, imageID); err != nil {
-		writeImageError(c, err)
-		return
-	}
-	c.Status(http.StatusNoContent)
-}
-
 // DELETE /api/images/:imageId
 func (h *ImageHandler) DeleteImage(c *gin.Context) {
 	actorID, imageID, ok := imageRequestIDs(c)
 	if !ok {
 		return
 	}
-	if err := h.imageService.MarkForDeletion(c.Request.Context(), actorID, imageID); err != nil {
+	if err := h.imageService.Remove(c.Request.Context(), actorID, imageID); err != nil {
 		writeImageError(c, err)
 		return
 	}
@@ -164,8 +151,6 @@ func writeImageError(c *gin.Context, err error) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Image verification failed"})
 	case errors.Is(err, services.ErrInvalidImageState):
 		c.JSON(http.StatusConflict, gin.H{"error": "Invalid image state"})
-	case errors.Is(err, services.ErrImageStillReferenced):
-		c.JSON(http.StatusConflict, gin.H{"error": "Image is still referenced"})
 	case errors.Is(err, services.ErrImageNotOwned), errors.Is(err, gorm.ErrRecordNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "Image not found"})
 	default:
