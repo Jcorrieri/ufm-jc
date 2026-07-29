@@ -6,6 +6,7 @@ import (
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ListingService struct {
@@ -17,7 +18,7 @@ func NewListingService(db *gorm.DB) *ListingService {
 }
 
 func ActiveImagesOnly(db gorm.PreloadBuilder) error {
-	db.Where("status = ? AND detached_at IS NULL", models.ImageStatusReady).
+	db.Where("status = ?", models.ImageStatusReady).
 		Order("position asc, id asc")
 	return nil
 }
@@ -151,9 +152,28 @@ func (s *ListingService) Publish(
 	sellerID uuid.UUID,
 ) (*models.Listing, error) {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var listing models.Listing
+		err := tx.WithContext(ctx).
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND seller_id = ?", id, sellerID).
+			First(&listing).
+			Error
+		if err != nil {
+			return err
+		}
+		if listing.Status == models.ListingStatusAvailable {
+			return nil
+		}
+		if listing.Status != models.ListingStatusDraft {
+			return ErrInvalidImageState
+		}
+
 		unresolvedImages, err := gorm.G[models.Image](tx).
-			Where("listing_id = ? AND detached_at IS NULL", id).
-			Where("status <> ?", models.ImageStatusReady).
+			Where("listing_id = ?", id).
+			Where("status IN ?", []models.ImageStatus{
+				models.ImageStatusPending,
+				models.ImageStatusVerifying,
+			}).
 			Count(ctx, "id")
 		if err != nil {
 			return err
@@ -186,20 +206,94 @@ func (s *ListingService) Publish(
 	return &listing, err
 }
 
-func (s *ListingService) Delete(ctx context.Context, id uuid.UUID) error {
-	// Deleting a record requires some additional processing. Gorm
-	// uses soft deletion by default (see https://gorm.io/docs/delete.html#Soft-Delete).
-	// TODO: Update to delete images within transaction
-	rowsAffected, err := gorm.G[models.Listing](s.db).Where("id = ?", id).Delete(ctx)
+func (s *ListingService) AbortDraft(
+	ctx context.Context,
+	id uuid.UUID,
+	sellerID uuid.UUID,
+) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		listing, err := s.lockOwnedListing(ctx, tx, id, sellerID)
+		if err != nil {
+			return err
+		}
+		if listing.Status != models.ListingStatusDraft {
+			return ErrInvalidImageState
+		}
+		if err := s.markUnretainedImagesDeleting(ctx, tx, id); err != nil {
+			return err
+		}
+		return deleteListingRow(ctx, tx, id)
+	})
+}
 
+func (s *ListingService) Delete(
+	ctx context.Context,
+	id uuid.UUID,
+	sellerID uuid.UUID,
+) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := s.lockOwnedListing(ctx, tx, id, sellerID); err != nil {
+			return err
+		}
+		if err := s.markUnretainedImagesDeleting(ctx, tx, id); err != nil {
+			return err
+		}
+		return deleteListingRow(ctx, tx, id)
+	})
+}
+
+func (s *ListingService) lockOwnedListing(
+	ctx context.Context,
+	tx *gorm.DB,
+	id uuid.UUID,
+	sellerID uuid.UUID,
+) (models.Listing, error) {
+	var listing models.Listing
+	err := tx.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ? AND seller_id = ?", id, sellerID).
+		First(&listing).
+		Error
+	return listing, err
+}
+
+func (s *ListingService) markUnretainedImagesDeleting(
+	ctx context.Context,
+	tx *gorm.DB,
+	listingID uuid.UUID,
+) error {
+	images, err := gorm.G[models.Image](tx).
+		Where("listing_id = ?", listingID).
+		Find(ctx)
 	if err != nil {
 		return err
 	}
+	for _, image := range images {
+		orderReferences, err := gorm.G[models.Order](tx).
+			Where("first_image_id = ?", image.ID).
+			Count(ctx, "id")
+		if err != nil {
+			return err
+		}
+		if orderReferences > 0 {
+			continue
+		}
+		if _, err := gorm.G[models.Image](tx).
+			Where("id = ?", image.ID).
+			Update(ctx, "status", models.ImageStatusDeleting); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	// No affected rows ⇒ no record existed; should return an error
-	if rowsAffected == 0 {
+func deleteListingRow(ctx context.Context, tx *gorm.DB, id uuid.UUID) error {
+	rows, err := gorm.G[models.Listing](tx).Where("id = ?", id).Delete(ctx)
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
 		return gorm.ErrRecordNotFound
 	}
-
 	return nil
 }

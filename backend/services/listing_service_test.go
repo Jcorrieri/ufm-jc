@@ -261,11 +261,9 @@ func TestGetListingPreloadsOnlyReadyAttachedImages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	now := time.Now().UTC()
 	images := []models.Image{
 		testListingImage(listing.ID, "ready", models.ImageStatusReady, nil),
 		testListingImage(listing.ID, "pending", models.ImageStatusPending, nil),
-		testListingImage(listing.ID, "detached", models.ImageStatusReady, &now),
 	}
 	if err := gorm.G[models.Image](db).CreateInBatches(ctx, &images, len(images)); err != nil {
 		t.Fatalf("create images: %v", err)
@@ -321,7 +319,7 @@ func TestDeleteListing(t *testing.T) {
 		t.Fatalf("Setup failed: %v", err)
 	}
 
-	err = svc.Delete(ctx, listing.ID)
+	err = svc.Delete(ctx, listing.ID, testUser.ID)
 	if err != nil {
 		t.Fatalf("Expected no error on delete, got %v", err)
 	}
@@ -336,7 +334,7 @@ func TestDeleteListing_InvalidID(t *testing.T) {
 	ctx := context.Background()
 	svc := services.NewListingService(db)
 
-	err := svc.Delete(ctx, uuid.Nil)
+	err := svc.Delete(ctx, uuid.Nil, testUser.ID)
 	if err == nil {
 		t.Error("Expected error for invalid UUID, got nil")
 	}
@@ -346,9 +344,65 @@ func TestDeleteListing_NotFound(t *testing.T) {
 	ctx := context.Background()
 	svc := services.NewListingService(db)
 
-	err := svc.Delete(ctx, uuid.Nil)
+	err := svc.Delete(ctx, uuid.Nil, testUser.ID)
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Errorf("Expected error for missing record")
+	}
+}
+
+func TestAbortDraftMarksImagesDeleting(t *testing.T) {
+	ctx := context.Background()
+	svc := services.NewListingService(db)
+	listing, err := svc.Create(ctx, services.CreateListingRequest{
+		Title: "Aborted draft", Description: "Description",
+		Price: 1, SellerID: testUser.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	images := []models.Image{
+		testListingImage(listing.ID, "abort-ready", models.ImageStatusReady, nil),
+		testListingImage(listing.ID, "abort-pending", models.ImageStatusPending, nil),
+	}
+	if err := gorm.G[models.Image](db).CreateInBatches(ctx, &images, len(images)); err != nil {
+		t.Fatalf("create images: %v", err)
+	}
+
+	if err := svc.AbortDraft(ctx, listing.ID, testUser.ID); err != nil {
+		t.Fatalf("AbortDraft() error = %v", err)
+	}
+	for _, image := range images {
+		stored, err := gorm.G[models.Image](db).
+			Where("id = ?", image.ID).
+			First(ctx)
+		if err != nil {
+			t.Fatalf("load image: %v", err)
+		}
+		if stored.Status != models.ImageStatusDeleting {
+			t.Errorf("image status = %q, want deleting", stored.Status)
+		}
+	}
+}
+
+func TestAbortDraftRejectsPublishedListing(t *testing.T) {
+	ctx := context.Background()
+	svc := services.NewListingService(db)
+	listing, err := svc.Create(ctx, services.CreateListingRequest{
+		Title: "Published listing", Description: "Description",
+		Price: 1, SellerID: testUser.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := svc.Publish(ctx, listing.ID, testUser.ID); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if err := svc.AbortDraft(
+		ctx,
+		listing.ID,
+		testUser.ID,
+	); !errors.Is(err, services.ErrInvalidImageState) {
+		t.Fatalf("AbortDraft() error = %v, want invalid state", err)
 	}
 }
 
@@ -356,16 +410,16 @@ func testListingImage(
 	listingID uuid.UUID,
 	name string,
 	status models.ImageStatus,
-	detachedAt *time.Time,
+	_ *time.Time,
 ) models.Image {
 	return models.Image{
 		UploadedByID:      testUser.ID,
 		ListingID:         &listingID,
 		Status:            status,
 		ObjectKey:         "test/" + name,
+		StagingObjectKey:  "staging/test/" + name,
 		ExpectedSizeBytes: 1,
 		ExpectedMimeType:  "image/png",
 		UploadExpiresAt:   time.Now().Add(time.Minute),
-		DetachedAt:        detachedAt,
 	}
 }

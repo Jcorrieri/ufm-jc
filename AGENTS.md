@@ -32,7 +32,11 @@ an in-memory, persistence-independent hub. The frontend `AuthService` owns the i
 user cache, and the frontend `ChatService` owns shared conversation summaries updated by active
 WebSocket messages. Images use metadata-only rows linked to uploaders, listings, user profiles,
 and order snapshots. The image coordinator exposes lifecycle endpoints behind an object-store
-interface and validates JPEG/PNG streams without additional dependencies.
+interface and validates JPEG/PNG streams without additional dependencies. Clients upload to
+staging keys; verified object identities are conditionally promoted to immutable serving keys.
+The frontend `ImageService` coordinates upload initiation, direct object-store transfer,
+verification completion, and failed-upload cleanup. Listing creation publishes its draft only
+after every selected image is ready.
 
 ## Refactoring Goals
 
@@ -58,10 +62,11 @@ interface and validates JPEG/PNG streams without additional dependencies.
 
 ## Frontend Test Coverage
 
-- Angular/Vitest has 54 tests in thirteen specs. Forgot/reset password, order history,
+- Angular/Vitest has 65 tests in sixteen specs. Image upload coordination, create-listing
+  publication, profile-image replacement, forgot/reset password, order history,
   authentication caching, and conversation synchronization have behavioral coverage; app,
   avatar, listing, navbar, login, and sign-up specs are creation-only smoke tests.
-- Cypress exercises 89 browser scenarios with intercepted APIs across login, registration,
+- Cypress exercises 90 browser scenarios with intercepted APIs across login, registration,
   password reset, marketplace search, listing CRUD and images, auth guards, and order history.
 - Cypress runs against Angular at `http://localhost:4200`. Because most API calls are intercepted,
   it validates browser, component, and routing behavior rather than the deployed full stack.
@@ -73,8 +78,8 @@ interface and validates JPEG/PNG streams without additional dependencies.
 - SQLite remains the only database adapter, although connection, migration, and seeding lifecycles
 are explicit and separate from HTTP server startup.
 - The metadata-only image API has no production object-store adapter or background lifecycle
-workers yet. Existing local databases containing image BLOBs must be recreated, and the Angular
-client still uses the former multipart upload flow until its follow-up migration.
+workers yet. Existing local databases containing image BLOBs must be recreated. Frontend image
+happy paths therefore require a mocked upload authorization until an adapter is configured.
 - WebSockets accept every origin. Restrict origins and retain participant authorization checks.
 - Auth cookies are set with `Secure=false`; production needs HTTPS-only cookies, explicit cookie
 policy, CSRF protection, and validated non-empty secrets at startup. Logout does not revoke JWTs.

@@ -15,6 +15,8 @@ type UploadAuthorizationRequest struct {
 
 type UploadAuthorization struct {
 	URL       string            `json:"url"`
+	Method    string            `json:"method"`
+	Headers   map[string]string `json:"headers,omitempty"`
 	Fields    map[string]string `json:"fields,omitempty"`
 	ExpiresAt time.Time         `json:"expires_at"`
 }
@@ -22,12 +24,18 @@ type UploadAuthorization struct {
 type ObjectMetadata struct {
 	SizeBytes int64
 	MimeType  string
+	Identity  string
+}
+
+type StoredObject struct {
+	Reader   io.ReadCloser
+	Metadata ObjectMetadata
 }
 
 type ObjectStore interface {
 	AuthorizeUpload(context.Context, UploadAuthorizationRequest) (UploadAuthorization, error)
-	Stat(context.Context, string) (ObjectMetadata, error)
-	Open(context.Context, string) (io.ReadCloser, error)
+	Open(context.Context, string) (StoredObject, error)
+	Promote(context.Context, string, string, string) error
 	AuthorizeDownload(context.Context, string, time.Time) (string, error)
 	Delete(context.Context, string) error
 }
@@ -42,12 +50,12 @@ func (UnavailableObjectStore) AuthorizeUpload(
 	return UploadAuthorization{}, ErrObjectStoreUnavailable
 }
 
-func (UnavailableObjectStore) Stat(context.Context, string) (ObjectMetadata, error) {
-	return ObjectMetadata{}, ErrObjectStoreUnavailable
+func (UnavailableObjectStore) Open(context.Context, string) (StoredObject, error) {
+	return StoredObject{}, ErrObjectStoreUnavailable
 }
 
-func (UnavailableObjectStore) Open(context.Context, string) (io.ReadCloser, error) {
-	return nil, ErrObjectStoreUnavailable
+func (UnavailableObjectStore) Promote(context.Context, string, string, string) error {
+	return ErrObjectStoreUnavailable
 }
 
 func (UnavailableObjectStore) AuthorizeDownload(

@@ -73,7 +73,8 @@ func (s *ImageService) BeginUpload(
 		UploadedByID:      actorID,
 		ListingID:         request.ListingID,
 		Status:            models.ImageStatusPending,
-		ObjectKey:         createObjectKey(actorID, request.ListingID, imageID),
+		ObjectKey:         createServingObjectKey(imageID),
+		StagingObjectKey:  createStagingObjectKey(actorID, imageID),
 		Position:          request.Position,
 		ExpectedSizeBytes: request.ExpectedSize,
 		ExpectedMimeType:  request.ExpectedMimeType,
@@ -99,7 +100,7 @@ func (s *ImageService) BeginUpload(
 	authorization, err := s.objectStore.AuthorizeUpload(
 		ctx,
 		UploadAuthorizationRequest{
-			ObjectKey:    image.ObjectKey,
+			ObjectKey:    image.StagingObjectKey,
 			MimeType:     image.ExpectedMimeType,
 			MaximumBytes: MaxImageSize,
 			ExpiresAt:    image.UploadExpiresAt,
@@ -138,17 +139,22 @@ func (s *ImageService) CompleteUpload(
 		return nil, ErrInvalidImageState
 	}
 
-	rows, err := gorm.G[models.Image](s.db).
+	verificationStartedAt := time.Now().UTC()
+	result := s.db.WithContext(ctx).
+		Model(&models.Image{}).
 		Where("id = ? AND status = ?", imageID, models.ImageStatusPending).
-		Update(ctx, "status", models.ImageStatusVerifying)
-	if err != nil {
-		return nil, err
+		Updates(map[string]any{
+			"status":                  models.ImageStatusVerifying,
+			"verification_started_at": verificationStartedAt,
+		})
+	if result.Error != nil {
+		return nil, result.Error
 	}
-	if rows == 0 {
+	if result.RowsAffected == 0 {
 		return nil, ErrInvalidImageState
 	}
 
-	verified, err := s.verifyObject(ctx, image)
+	verified, identity, err := s.verifyObject(ctx, image)
 	if err != nil {
 		var transitionErr error
 		if errors.Is(err, ErrInvalidImageMetadata) ||
@@ -159,25 +165,43 @@ func (s *ImageService) CompleteUpload(
 		}
 		return nil, errors.Join(err, transitionErr)
 	}
+	if err := s.objectStore.Promote(
+		ctx,
+		image.StagingObjectKey,
+		image.ObjectKey,
+		identity,
+	); err != nil {
+		return nil, errors.Join(err, s.resetPending(ctx, imageID))
+	}
 
 	now := time.Now().UTC()
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		updates := map[string]any{
-			"status":          models.ImageStatusReady,
-			"size_bytes":      verified.SizeBytes,
-			"mime_type":       verified.MimeType,
-			"width":           verified.Width,
-			"height":          verified.Height,
-			"checksum_sha256": verified.ChecksumSHA256,
-			"verified_at":     now,
+			"status":                  models.ImageStatusReady,
+			"size_bytes":              verified.SizeBytes,
+			"mime_type":               verified.MimeType,
+			"width":                   verified.Width,
+			"height":                  verified.Height,
+			"checksum_sha256":         verified.ChecksumSHA256,
+			"verification_started_at": nil,
+			"verified_at":             now,
 		}
-		rows := tx.Model(&models.Image{}).
+		result := tx.Model(&models.Image{}).
 			Where("id = ? AND status = ?", imageID, models.ImageStatusVerifying).
-			Updates(updates).RowsAffected
-		if rows == 0 {
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
 			return ErrInvalidImageState
 		}
 		if image.ListingID == nil {
+			user, err := gorm.G[models.User](tx).
+				Where("id = ?", actorID).
+				First(ctx)
+			if err != nil {
+				return err
+			}
 			rows, err := gorm.G[models.User](tx).
 				Where("id = ?", actorID).
 				Update(ctx, "profile_image_id", imageID)
@@ -186,6 +210,17 @@ func (s *ImageService) CompleteUpload(
 			}
 			if rows == 0 {
 				return gorm.ErrRecordNotFound
+			}
+			if user.ProfileImageID != nil && *user.ProfileImageID != imageID {
+				rows, err := gorm.G[models.Image](tx).
+					Where("id = ?", *user.ProfileImageID).
+					Update(ctx, "status", models.ImageStatusDeleting)
+				if err != nil {
+					return err
+				}
+				if rows == 0 {
+					return gorm.ErrRecordNotFound
+				}
 			}
 		}
 		return nil
@@ -255,11 +290,11 @@ func (s *ImageService) Remove(
 		if image.Status == models.ImageStatusVerifying {
 			return ErrInvalidImageState
 		}
+		if image.ListingID != nil {
+			return ErrInvalidImageState
+		}
 
 		updates := map[string]any{}
-		if image.ListingID != nil && image.DetachedAt == nil {
-			updates["detached_at"] = time.Now().UTC()
-		}
 
 		if _, err := gorm.G[models.User](tx).
 			Where("id = ? AND profile_image_id = ?", actorID, imageID).
@@ -294,31 +329,28 @@ func (s *ImageService) Remove(
 func (s *ImageService) verifyObject(
 	ctx context.Context,
 	image models.Image,
-) (utils.VerifiedImage, error) {
-	metadata, err := s.objectStore.Stat(ctx, image.ObjectKey)
+) (utils.VerifiedImage, string, error) {
+	object, err := s.objectStore.Open(ctx, image.StagingObjectKey)
 	if err != nil {
-		return utils.VerifiedImage{}, err
+		return utils.VerifiedImage{}, "", err
 	}
+	defer object.Reader.Close()
+	metadata := object.Metadata
 	if metadata.SizeBytes != image.ExpectedSizeBytes ||
-		metadata.SizeBytes > MaxImageSize {
-		return utils.VerifiedImage{}, ErrInvalidImageMetadata
+		metadata.SizeBytes > MaxImageSize ||
+		metadata.Identity == "" {
+		return utils.VerifiedImage{}, "", ErrInvalidImageMetadata
 	}
 
-	reader, err := s.objectStore.Open(ctx, image.ObjectKey)
-	if err != nil {
-		return utils.VerifiedImage{}, err
-	}
-	defer reader.Close()
-
-	verified, err := s.verifier.Verify(ctx, reader, utils.VerificationOptions{
+	verified, err := s.verifier.Verify(ctx, object.Reader, utils.VerificationOptions{
 		MaximumSizeBytes:  MaxImageSize,
 		ExpectedSizeBytes: image.ExpectedSizeBytes,
 		ExpectedMimeType:  image.ExpectedMimeType,
 	})
 	if err != nil {
-		return utils.VerifiedImage{}, fmt.Errorf("%w: %v", ErrImageVerification, err)
+		return utils.VerifiedImage{}, "", fmt.Errorf("%w: %v", ErrImageVerification, err)
 	}
-	return verified, nil
+	return verified, metadata.Identity, nil
 }
 
 func (s *ImageService) authorizeDraftListing(
@@ -354,9 +386,9 @@ func (s *ImageService) hasOrderReference(
 }
 
 func (s *ImageService) markFailed(ctx context.Context, image models.Image) error {
-	updates := map[string]any{"status": models.ImageStatusFailed}
-	if image.ListingID != nil {
-		updates["detached_at"] = time.Now().UTC()
+	updates := map[string]any{
+		"status":                  models.ImageStatusFailed,
+		"verification_started_at": nil,
 	}
 	result := s.db.WithContext(ctx).
 		Model(&models.Image{}).
@@ -372,24 +404,28 @@ func (s *ImageService) markFailed(ctx context.Context, image models.Image) error
 }
 
 func (s *ImageService) resetPending(ctx context.Context, imageID uuid.UUID) error {
-	rows, err := gorm.G[models.Image](s.db).
+	result := s.db.WithContext(ctx).
+		Model(&models.Image{}).
 		Where("id = ? AND status = ?", imageID, models.ImageStatusVerifying).
-		Update(ctx, "status", models.ImageStatusPending)
-	if err == nil && rows == 0 {
+		Updates(map[string]any{
+			"status":                  models.ImageStatusPending,
+			"verification_started_at": nil,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
 		return ErrInvalidImageState
 	}
-	return err
+	return nil
 }
 
-func createObjectKey(
-	actorID uuid.UUID,
-	listingID *uuid.UUID,
-	imageID uuid.UUID,
-) string {
-	if listingID == nil {
-		return fmt.Sprintf("users/%s/%s", actorID, imageID)
-	}
-	return fmt.Sprintf("listings/%s/%s", *listingID, imageID)
+func createStagingObjectKey(actorID uuid.UUID, imageID uuid.UUID) string {
+	return fmt.Sprintf("staging/%s/%s", actorID, imageID)
+}
+
+func createServingObjectKey(imageID uuid.UUID) string {
+	return fmt.Sprintf("images/%s", imageID)
 }
 
 func isAllowedImageMimeType(mimeType string) bool {

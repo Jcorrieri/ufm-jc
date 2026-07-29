@@ -41,6 +41,7 @@ func RegisterListingsRoutes(
 	protected.POST("/listings", listingHandler.CreateListing)
 	protected.PUT("/listings/:id", listingHandler.UpdateListing)
 	protected.POST("/listings/:id/publish", listingHandler.PublishListing)
+	protected.DELETE("/listing-drafts/:id", listingHandler.AbortDraft)
 	protected.DELETE("/listings/:id", listingHandler.DeleteListing)
 }
 
@@ -108,7 +109,7 @@ func NewRouterWithObjectStore(
 	userHandler := handlers.NewUserHandler(userService)
 	listingHandler := handlers.NewListingHandler(listingService)
 	imageHandler := handlers.NewImageHandler(imageService)
-	orderHandler := handlers.NewOrderHandler(orderService, listingService)
+	orderHandler := handlers.NewOrderHandler(orderService)
 	hub := services.NewHub()
 	chatHandler := handlers.NewChatHandler(chatService)
 	chatWebSocketHandler := handlers.NewChatWebSocketHandler(chatService, hub)

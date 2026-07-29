@@ -218,72 +218,34 @@
   margin-top: 4px;
 }
 
-/* ── Image edit ── */
-.image-edit-area {
-  margin-top: 4px;
-}
-
-.image-scroll {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding: 4px 0 8px;
-}
-
-.image-preview {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.preview-img {
-  width: 80px;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 8px;
-}
-
-.remove-img-btn {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: none;
-  background: #c62828;
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.remove-img-btn mat-icon {
-  font-size: 14px;
-  width: 14px;
-  height: 14px;
-}
-
-.add-image-btn {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 80px;
-  height: 80px;
-  border: 2px dashed var(--border-color);
-  border-radius: 8px;
-  background: transparent;
+.photo-note {
+  margin: 0;
   color: var(--text-secondary);
-  cursor: pointer;
-  gap: 2px;
-  font-size: 0.65rem;
-  transition: border-color 0.2s;
+  font-size: 0.8rem;
 }
 
-.add-image-btn:hover {
-  border-color: #0021a5;
-  color: #0021a5;
+.status-badge {
+  align-self: flex-start;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.status-badge.available {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.status-badge.sold {
+  background: #eeeeee;
+  color: #616161;
+}
+
+.status-badge.draft {
+  background: #fff3e0;
+  color: #e65100;
 }

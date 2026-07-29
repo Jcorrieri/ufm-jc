@@ -38,6 +38,7 @@ const SAMPLE_LISTING = {
   title: 'Used Textbook',
   description: 'Calculus 2 textbook, good condition.',
   price: 25,
+  status: 'available',
   image_count: 1,
   first_image_id: 'img-1',
   seller_name: 'Test User',
@@ -49,6 +50,7 @@ const SECOND_LISTING = {
   title: 'Desk Lamp',
   description: 'LED desk lamp, barely used.',
   price: 15,
+  status: 'available',
   image_count: 0,
   first_image_id: null,
   seller_name: 'Test User',
@@ -115,8 +117,12 @@ describe('Create Listing Page', () => {
   it('should call POST /api/listings and navigate to /main on success', () => {
     cy.intercept('POST', '/api/listings', {
       statusCode: 201,
-      body: { ...SAMPLE_LISTING, title: 'My New Item' },
+      body: { ...SAMPLE_LISTING, title: 'My New Item', status: 'draft' },
     }).as('createListing');
+    cy.intercept('POST', `/api/listings/${SAMPLE_LISTING.id}/publish`, {
+      statusCode: 200,
+      body: { ...SAMPLE_LISTING, title: 'My New Item' },
+    }).as('publishListing');
 
     // Stub the GET that /main fires when it loads
     cy.intercept('GET', '/api/listings?*', {
@@ -131,6 +137,7 @@ describe('Create Listing Page', () => {
     cy.get('button.submit-btn').click();
 
     cy.wait('@createListing');
+    cy.wait('@publishListing');
 
     // Should navigate to /main after success
     cy.url().should('include', '/main');
@@ -168,6 +175,10 @@ describe('Create Listing Page', () => {
     cy.intercept('POST', '/api/listings', (req) => {
       req.reply({ statusCode: 201, body: SAMPLE_LISTING, delay: 1000 });
     }).as('slowCreate');
+    cy.intercept('POST', `/api/listings/${SAMPLE_LISTING.id}/publish`, {
+      statusCode: 200,
+      body: SAMPLE_LISTING,
+    });
 
     matType('input[placeholder="What are you selling?"]', 'Slow Item');
     matType('textarea', 'Takes a while');
@@ -227,6 +238,104 @@ describe('Create Listing Page', () => {
     );
 
     cy.get('.image-preview-card').should('have.length', 2);
+  });
+
+  it('should upload and verify an image before publishing the listing', () => {
+    cy.intercept('POST', '/api/listings', {
+      statusCode: 201,
+      body: { ...SAMPLE_LISTING, status: 'draft' },
+    }).as('createDraft');
+    cy.intercept('POST', '/api/images/uploads', {
+      statusCode: 201,
+      body: {
+        image: {
+          id: 'image-new',
+          status: 'pending',
+          position: 0,
+          expected_size: 4,
+          expected_mime_type: 'image/png',
+        },
+        authorization: {
+          url: 'https://objects.example/image-new',
+          method: 'PUT',
+          expires_at: '2026-07-26T12:00:00Z',
+        },
+      },
+    }).as('beginImage');
+    cy.intercept('PUT', 'https://objects.example/image-new', {
+      statusCode: 204,
+    }).as('uploadObject');
+    cy.intercept('POST', '/api/images/image-new/complete', {
+      statusCode: 200,
+      body: { id: 'image-new', status: 'ready', position: 0 },
+    }).as('completeImage');
+    cy.intercept('POST', `/api/listings/${SAMPLE_LISTING.id}/publish`, {
+      statusCode: 200,
+      body: SAMPLE_LISTING,
+    }).as('publishListing');
+    cy.intercept('GET', '/api/listings?*', {
+      statusCode: 200,
+      body: [],
+    });
+
+    cy.get('input[type="file"]').selectFile(
+      {
+        contents: Cypress.Buffer.from('img1'),
+        fileName: 'photo.png',
+        mimeType: 'image/png',
+      },
+      { force: true },
+    );
+    matType('input[placeholder="What are you selling?"]', 'My New Item');
+    matType('textarea', 'Brand new item for sale');
+    matType('input[type="number"]', '42');
+    cy.get('button.submit-btn').click();
+
+    cy.wait('@createDraft');
+    cy.wait('@beginImage').its('request.body').should('include', {
+      listing_id: SAMPLE_LISTING.id,
+      position: 0,
+      expected_mime_type: 'image/png',
+    });
+    cy.wait('@uploadObject');
+    cy.wait('@completeImage');
+    cy.wait('@publishListing');
+  });
+
+  it('should report unavailable storage and clean up the draft', () => {
+    cy.intercept('POST', '/api/listings', {
+      statusCode: 201,
+      body: { ...SAMPLE_LISTING, status: 'draft' },
+    }).as('createDraft');
+    cy.intercept('POST', '/api/images/uploads', {
+      statusCode: 503,
+      body: { error: 'Object storage unavailable' },
+    }).as('beginImage');
+    cy.intercept('DELETE', `/api/listing-drafts/${SAMPLE_LISTING.id}`, {
+      statusCode: 200,
+      body: {},
+    }).as('deleteDraft');
+    cy.intercept('POST', `/api/listings/${SAMPLE_LISTING.id}/publish`).as(
+      'publishListing',
+    );
+
+    cy.get('input[type="file"]').selectFile(
+      {
+        contents: Cypress.Buffer.from('img1'),
+        fileName: 'photo.png',
+        mimeType: 'image/png',
+      },
+      { force: true },
+    );
+    matType('input[placeholder="What are you selling?"]', 'My New Item');
+    matType('textarea', 'Brand new item for sale');
+    matType('input[type="number"]', '42');
+    cy.get('button.submit-btn').click();
+
+    cy.wait('@beginImage');
+    cy.wait('@deleteDraft');
+    cy.contains('Object storage unavailable').should('be.visible');
+    cy.get('@publishListing.all').should('have.length', 0);
   });
 });
 
@@ -336,7 +445,14 @@ describe('My Listings Page', () => {
 
       // Save
       cy.get('button').contains('Save').click();
-      cy.wait('@updateListing');
+      cy.wait('@updateListing').then(({ request }) => {
+        expect(request.headers['content-type']).to.include('application/json');
+        expect(request.body).to.deep.equal({
+          title: SAMPLE_LISTING.title,
+          description: 'Updated description!',
+          price: 30,
+        });
+      });
 
       // Should exit edit mode and show updated values
       cy.get('.listing-card.editing').should('have.length', 0);
@@ -390,36 +506,11 @@ describe('My Listings Page', () => {
       cy.contains('Price must be positive').should('be.visible');
     });
 
-    it('should allow adding new images in edit mode', () => {
+    it('should not allow replacing images in edit mode', () => {
       cy.get('.edit-btn').first().click();
 
-      cy.get('.listing-card.editing input[type="file"]').selectFile(
-        {
-          contents: Cypress.Buffer.from('new-image-data'),
-          fileName: 'new-photo.png',
-          mimeType: 'image/png',
-        },
-        { force: true },
-      );
-
-      cy.get('.listing-card.editing .image-preview').should('have.length', 1);
-    });
-
-    it('should allow removing new images in edit mode', () => {
-      cy.get('.edit-btn').first().click();
-
-      cy.get('.listing-card.editing input[type="file"]').selectFile(
-        {
-          contents: Cypress.Buffer.from('new-image-data'),
-          fileName: 'new-photo.png',
-          mimeType: 'image/png',
-        },
-        { force: true },
-      );
-
-      cy.get('.listing-card.editing .image-preview').should('have.length', 1);
-      cy.get('.listing-card.editing .remove-img-btn').click();
-      cy.get('.listing-card.editing .image-preview').should('have.length', 0);
+      cy.get('.listing-card.editing input[type="file"]').should('not.exist');
+      cy.contains('Photos cannot be replaced after posting.').should('be.visible');
     });
   });
 

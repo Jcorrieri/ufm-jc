@@ -23,7 +23,6 @@ func setupOrderTest() {
 		Price:       99.99,
 		SellerID:    testUser.ID,
 		Status:      "available",
-		Seller:      testUser,
 	}
 
 	if err := gorm.G[models.Listing](db).Create(ctx, &orderTestListing); err != nil {
@@ -163,7 +162,6 @@ func TestOrderServiceGetByBuyerIDOrdering(t *testing.T) {
 			Price:       float64(i * 10),
 			SellerID:    testUser.ID,
 			Status:      "available",
-			Seller:      testUser,
 		}
 		if err := gorm.G[models.Listing](db).Create(ctx, &listing); err != nil {
 			t.Fatalf("Failed to create listing: %v", err)
@@ -233,7 +231,6 @@ func TestOrderServiceGetByBuyerIDFilters(t *testing.T) {
 		Price:       49.99,
 		SellerID:    testUser.ID,
 		Status:      "available",
-		Seller:      testUser,
 	}
 	if err := gorm.G[models.Listing](db).Create(ctx, &listing2); err != nil {
 		t.Fatalf("Failed to create listing2: %v", err)
@@ -287,7 +284,6 @@ func TestOrderServiceCreateFromListingPropagatesDBError(t *testing.T) {
 		Price:       99.99,
 		SellerID:    testUser.ID,
 		Status:      "available",
-		Seller:      testUser,
 	}
 	if err := gorm.G[models.Listing](db).Create(ctx, &validListing); err != nil {
 		t.Fatalf("Failed to create valid listing: %v", err)

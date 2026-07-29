@@ -12,18 +12,11 @@ import (
 )
 
 type OrderHandler struct {
-	orderService   *services.OrderService
-	listingService *services.ListingService
+	orderService *services.OrderService
 }
 
-func NewOrderHandler(
-	orderService *services.OrderService,
-	listingService *services.ListingService,
-) *OrderHandler {
-	return &OrderHandler{
-		orderService:   orderService,
-		listingService: listingService,
-	}
+func NewOrderHandler(orderService *services.OrderService) *OrderHandler {
+	return &OrderHandler{orderService: orderService}
 }
 
 type CreateOrderRequest struct {
@@ -65,31 +58,16 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	// Load listing from DB to ensure data integrity
-	listing, err := h.listingService.GetByID(c.Request.Context(), listingID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
-		return
-	}
-
-	// Prevent buyer from purchasing their own listing
-	if listing.SellerID == userID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot purchase your own listing"})
-		return
-	}
-
-	// Check if listing is still available
-	if listing.Status != models.ListingStatusAvailable {
-		c.JSON(http.StatusConflict, gin.H{"error": "Listing is no longer available"})
-		return
-	}
-
-	order, err := h.orderService.CreateFromListing(
+	order, err := h.orderService.Create(
 		c.Request.Context(),
 		userID,
-		&listing,
+		listingID,
 	)
 	if err != nil {
+		if errors.Is(err, services.ErrCannotPurchaseOwnListing) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot purchase your own listing"})
+			return
+		}
 		// A missing row from the transactional status check means the listing
 		// is no longer available.
 		if errors.Is(err, gorm.ErrRecordNotFound) {
