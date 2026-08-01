@@ -33,7 +33,9 @@ user cache, and the frontend `ChatService` owns shared conversation summaries up
 WebSocket messages. Images use metadata-only rows linked to uploaders, listings, user profiles,
 and order snapshots. The image coordinator exposes lifecycle endpoints behind an object-store
 interface and validates JPEG/PNG streams without additional dependencies. Clients upload to
-staging keys; verified object identities are conditionally promoted to immutable serving keys.
+server-generated staging keys through five-minute presigned S3 POST forms; verified object
+identities are conditionally promoted to immutable serving keys. The production S3 adapter uses
+the AWS SDK credential chain, while the unavailable adapter keeps image storage optional.
 The frontend `ImageService` coordinates upload initiation, direct object-store transfer,
 verification completion, and failed-upload cleanup. Listing creation publishes its draft only
 after every selected image is ready.
@@ -47,9 +49,8 @@ after every selected image is ready.
    external image downloads.
 3. Maintain CI checks for Go formatting, vet, tests, and builds plus Angular tests and builds.
    Add Cypress only after its server orchestration and fixtures are reliable in CI.
-4. Complete image storage: implement an S3-compatible object-store adapter, direct-upload
-   authorization, background cleanup/deletion, and frontend integration against the metadata-only
-   image API.
+4. Complete image storage: add background cleanup/deletion and stale-state recovery to the S3
+   adapter and direct-upload integration against the metadata-only image API.
 
 ## Working Conventions
 
@@ -62,7 +63,7 @@ after every selected image is ready.
 
 ## Frontend Test Coverage
 
-- Angular/Vitest has 65 tests in sixteen specs. Image upload coordination, create-listing
+- Angular/Vitest has 66 tests in sixteen specs. Image upload coordination, create-listing
   publication, profile-image replacement, forgot/reset password, order history,
   authentication caching, and conversation synchronization have behavioral coverage; app,
   avatar, listing, navbar, login, and sign-up specs are creation-only smoke tests.
@@ -77,9 +78,10 @@ after every selected image is ready.
 
 - SQLite remains the only database adapter, although connection, migration, and seeding lifecycles
 are explicit and separate from HTTP server startup.
-- The metadata-only image API has no production object-store adapter or background lifecycle
-workers yet. Existing local databases containing image BLOBs must be recreated. Frontend image
-happy paths therefore require a mocked upload authorization until an adapter is configured.
+- The metadata-only image API supports a manually configured private S3 bucket, but has no
+background lifecycle worker yet. Rows marked `deleting`, expired metadata, and stale verification
+states require a future reconciliation pass. Existing local databases containing image BLOBs must
+be recreated.
 - WebSockets accept every origin. Restrict origins and retain participant authorization checks.
 - Auth cookies are set with `Secure=false`; production needs HTTPS-only cookies, explicit cookie
 policy, CSRF protection, and validated non-empty secrets at startup. Logout does not revoke JWTs.

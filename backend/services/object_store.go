@@ -2,8 +2,14 @@ package services
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
+)
+
+var (
+	ErrObjectNotFound = errors.New("object was not found")
+	ErrObjectChanged  = errors.New("object changed after verification")
 )
 
 type UploadAuthorizationRequest struct {

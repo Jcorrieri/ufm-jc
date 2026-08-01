@@ -23,7 +23,7 @@ export interface ImageMetadata {
 
 export interface UploadAuthorization {
   url: string;
-  method: 'PUT' | 'POST';
+  method: 'POST';
   headers?: Record<string, string>;
   fields?: Record<string, string>;
   expires_at: string;
@@ -77,36 +77,23 @@ export class ImageService {
     file: File,
     authorization: UploadAuthorization,
   ): Promise<void> {
-    const method = authorization.method.toUpperCase();
-    let body: BodyInit;
-    let headers: HeadersInit | undefined;
-
-    if (method === 'POST') {
-      const formData = new FormData();
-      for (const [name, value] of Object.entries(authorization.fields ?? {})) {
-        formData.append(name, value);
-      }
-      formData.append('file', file);
-      body = formData;
-      const uploadHeaders = new Headers(authorization.headers);
-      uploadHeaders.delete('Content-Type');
-      headers = uploadHeaders;
-    } else if (method === 'PUT') {
-      const uploadHeaders = new Headers(authorization.headers);
-      if (!uploadHeaders.has('Content-Type')) {
-        uploadHeaders.set('Content-Type', file.type);
-      }
-      body = file;
-      headers = uploadHeaders;
-    } else {
-      throw new ImageApiError(`Unsupported object upload method: ${method}`);
+    if (authorization.method !== 'POST') {
+      throw new ImageApiError('Invalid object upload authorization.');
     }
 
+    const formData = new FormData();
+    for (const [name, value] of Object.entries(authorization.fields ?? {})) {
+      formData.append(name, value);
+    }
+    formData.append('file', file);
+    const uploadHeaders = new Headers(authorization.headers);
+    uploadHeaders.delete('Content-Type');
+
     const response = await fetch(authorization.url, {
-      method,
+      method: 'POST',
       credentials: 'omit',
-      headers,
-      body,
+      headers: uploadHeaders,
+      body: formData,
     });
     if (!response.ok) {
       throw new ImageApiError('Failed to upload image data.');

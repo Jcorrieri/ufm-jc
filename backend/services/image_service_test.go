@@ -26,6 +26,7 @@ type fakeObjectStore struct {
 	promotedID    string
 	downloadURL   string
 	uploadRequest services.UploadAuthorizationRequest
+	deletedKeys   []string
 }
 
 func (store *fakeObjectStore) AuthorizeUpload(
@@ -76,7 +77,8 @@ func (store *fakeObjectStore) AuthorizeDownload(
 	return store.downloadURL, nil
 }
 
-func (store *fakeObjectStore) Delete(context.Context, string) error {
+func (store *fakeObjectStore) Delete(_ context.Context, objectKey string) error {
+	store.deletedKeys = append(store.deletedKeys, objectKey)
 	return nil
 }
 
@@ -139,6 +141,9 @@ func TestImageServiceBeginAndCompleteListingUpload(t *testing.T) {
 	if ready.Status != models.ImageStatusReady || ready.ChecksumSHA256 == nil {
 		t.Fatalf("completed image = %#v", ready)
 	}
+	if len(store.deletedKeys) != 1 || store.deletedKeys[0] != begin.Image.StagingObjectKey {
+		t.Errorf("deleted keys = %#v, want completed staging key", store.deletedKeys)
+	}
 	if store.promotedFrom != begin.Image.StagingObjectKey ||
 		store.promotedTo != begin.Image.ObjectKey ||
 		store.promotedID != "test-etag" {
@@ -199,7 +204,7 @@ func TestImageServiceMarksSupersededProfileImageForDeletion(t *testing.T) {
 	ctx := context.Background()
 	store := &fakeObjectStore{
 		authorization: services.UploadAuthorization{
-			URL: "https://upload.example", Method: "PUT",
+			URL: "https://upload.example", Method: "POST",
 		},
 		metadata: services.ObjectMetadata{SizeBytes: 5, MimeType: "image/jpeg"},
 	}
@@ -234,6 +239,40 @@ func TestImageServiceMarksSupersededProfileImageForDeletion(t *testing.T) {
 	}
 	if oldImage.Status != models.ImageStatusDeleting {
 		t.Errorf("old image status = %q, want deleting", oldImage.Status)
+	}
+}
+
+func TestImageServiceUsesFiveMinuteServerGeneratedUploadKeys(t *testing.T) {
+	before := time.Now().UTC()
+	store := &fakeObjectStore{
+		authorization: services.UploadAuthorization{URL: "https://upload.example"},
+	}
+	imageService := services.NewImageService(db, store, &fakeImageVerifier{})
+
+	begin, err := imageService.BeginUpload(
+		context.Background(),
+		testUser.ID,
+		services.BeginImageUploadRequest{
+			ExpectedSize:     5,
+			ExpectedMimeType: "image/png",
+		},
+	)
+	if err != nil {
+		t.Fatalf("BeginUpload() error = %v", err)
+	}
+
+	if begin.Image.StagingObjectKey != "staging/"+testUser.ID.String()+"/"+
+		begin.Image.ID.String() {
+		t.Errorf("staging key = %q", begin.Image.StagingObjectKey)
+	}
+	if begin.Image.ObjectKey != "images/"+begin.Image.ID.String() {
+		t.Errorf("serving key = %q", begin.Image.ObjectKey)
+	}
+	minimumExpiration := before.Add(5*time.Minute - time.Second)
+	maximumExpiration := time.Now().UTC().Add(5*time.Minute + time.Second)
+	if begin.Image.UploadExpiresAt.Before(minimumExpiration) ||
+		begin.Image.UploadExpiresAt.After(maximumExpiration) {
+		t.Errorf("upload expiration = %v, want approximately five minutes", begin.Image.UploadExpiresAt)
 	}
 }
 

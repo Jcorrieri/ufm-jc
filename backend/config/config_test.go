@@ -68,6 +68,54 @@ func TestLoadRejectsMalformedServerAddress(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsToUnavailableObjectStore(t *testing.T) {
+	setEnvironment(t, validEnvironment)
+	t.Setenv("OBJECT_STORE_PROVIDER", "")
+
+	configuration, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if configuration.ObjectStoreProvider != "unavailable" {
+		t.Errorf("ObjectStoreProvider = %q", configuration.ObjectStoreProvider)
+	}
+}
+
+func TestLoadRequiresS3Configuration(t *testing.T) {
+	setEnvironment(t, validEnvironment)
+	t.Setenv("OBJECT_STORE_PROVIDER", "s3")
+	t.Setenv("S3_BUCKET", "")
+	t.Setenv("AWS_REGION", "")
+
+	if _, err := config.Load(); err == nil || !strings.Contains(err.Error(), "S3_BUCKET") {
+		t.Fatalf("Load() error = %v, want missing S3_BUCKET", err)
+	}
+
+	t.Setenv("S3_BUCKET", "image-bucket")
+	if _, err := config.Load(); err == nil || !strings.Contains(err.Error(), "AWS_REGION") {
+		t.Fatalf("Load() error = %v, want missing AWS_REGION", err)
+	}
+
+	t.Setenv("AWS_REGION", "us-east-1")
+	configuration, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if configuration.S3Bucket != "image-bucket" || configuration.AWSRegion != "us-east-1" {
+		t.Errorf("S3 configuration = %#v", configuration)
+	}
+}
+
+func TestLoadRejectsUnknownObjectStore(t *testing.T) {
+	setEnvironment(t, validEnvironment)
+	t.Setenv("OBJECT_STORE_PROVIDER", "filesystem")
+
+	_, err := config.Load()
+	if err == nil || !strings.Contains(err.Error(), "OBJECT_STORE_PROVIDER") {
+		t.Fatalf("Load() error = %v, want invalid OBJECT_STORE_PROVIDER", err)
+	}
+}
+
 func setEnvironment(t *testing.T, values map[string]string) {
 	t.Helper()
 	for variableName, value := range values {

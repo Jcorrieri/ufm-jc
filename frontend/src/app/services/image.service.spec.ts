@@ -29,15 +29,16 @@ describe('ImageService', () => {
     vi.restoreAllMocks();
   });
 
-  it('coordinates initiation, a PUT upload, and completion', async () => {
+  it('coordinates initiation, a POST upload, and completion', async () => {
     const readyImage = { ...image, status: 'ready' as const };
     const fetchSpy = vi
       .spyOn(window, 'fetch')
       .mockResolvedValueOnce(
         Response.json(
           initiation({
-            url: 'https://objects.example/image-1',
-            method: 'PUT',
+            url: 'https://objects.example',
+            method: 'POST',
+            fields: { key: 'staging/user/image-1', policy: 'signed-policy' },
             expires_at: '2026-07-26T12:00:00Z',
           }),
           { status: 201 },
@@ -68,11 +69,11 @@ describe('ImageService', () => {
     });
     expect(fetchSpy).toHaveBeenNthCalledWith(
       2,
-      'https://objects.example/image-1',
+      'https://objects.example',
       expect.objectContaining({
-        method: 'PUT',
+        method: 'POST',
         credentials: 'omit',
-        body: file,
+        body: expect.any(FormData),
       }),
     );
     expect(fetchSpy).toHaveBeenNthCalledWith(
@@ -91,7 +92,11 @@ describe('ImageService', () => {
     await service.uploadToObjectStore(file, {
       url: 'https://objects.example',
       method: 'POST',
-      fields: { key: 'images/image-1', policy: 'signed-policy' },
+      fields: {
+        key: 'images/image-1',
+        policy: 'signed-policy',
+        'Content-Type': 'image/png',
+      },
       headers: { 'Content-Type': 'multipart/form-data', 'X-Upload': 'allowed' },
       expires_at: '2026-07-26T12:00:00Z',
     });
@@ -105,6 +110,7 @@ describe('ImageService', () => {
     expect(headers.get('X-Upload')).toBe('allowed');
     expect(body.get('key')).toBe('images/image-1');
     expect(body.get('policy')).toBe('signed-policy');
+    expect(body.get('Content-Type')).toBe('image/png');
     expect(body.get('file')).toBe(file);
   });
 
@@ -114,8 +120,9 @@ describe('ImageService', () => {
       .mockResolvedValueOnce(
         Response.json(
           initiation({
-            url: 'https://objects.example/image-1',
-            method: 'PUT',
+            url: 'https://objects.example',
+            method: 'POST',
+            fields: { key: 'staging/user/image-1', policy: 'signed-policy' },
             expires_at: '2026-07-26T12:00:00Z',
           }),
           { status: 201 },
@@ -141,8 +148,9 @@ describe('ImageService', () => {
       .mockResolvedValueOnce(
         Response.json(
           initiation({
-            url: 'https://objects.example/image-1',
-            method: 'PUT',
+            url: 'https://objects.example',
+            method: 'POST',
+            fields: { key: 'staging/user/image-1', policy: 'signed-policy' },
             expires_at: '2026-07-26T12:00:00Z',
           }),
           { status: 201 },
@@ -165,5 +173,17 @@ describe('ImageService', () => {
     await expect(new ImageService().uploadImage(file)).rejects.toThrow(
       'Object storage unavailable',
     );
+  });
+
+  it('rejects an unexpected upload method', async () => {
+    const authorization = {
+      url: 'https://objects.example',
+      method: 'PUT',
+      expires_at: '2026-07-26T12:00:00Z',
+    } as unknown as UploadAuthorization;
+
+    await expect(
+      new ImageService().uploadToObjectStore(file, authorization),
+    ).rejects.toThrow('Invalid object upload authorization.');
   });
 });

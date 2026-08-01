@@ -14,7 +14,7 @@ import (
 
 const (
 	MaxImageSize             = 5 * 1024 * 1024
-	uploadAuthorizationTTL   = 15 * time.Minute
+	uploadAuthorizationTTL   = 5 * time.Minute
 	downloadAuthorizationTTL = 5 * time.Minute
 )
 
@@ -171,6 +171,9 @@ func (s *ImageService) CompleteUpload(
 		image.ObjectKey,
 		identity,
 	); err != nil {
+		if errors.Is(err, ErrObjectChanged) || errors.Is(err, ErrObjectNotFound) {
+			return nil, errors.Join(ErrImageVerification, s.markFailed(ctx, image))
+		}
 		return nil, errors.Join(err, s.resetPending(ctx, imageID))
 	}
 
@@ -230,6 +233,11 @@ func (s *ImageService) CompleteUpload(
 	}
 
 	ready, err := s.getImageByID(ctx, s.db, imageID)
+	if err == nil {
+		// The serving object is durable once the database commit succeeds. A failed
+		// staging cleanup is left to the bucket's staging lifecycle rule.
+		_ = s.objectStore.Delete(ctx, image.StagingObjectKey)
+	}
 	return &ready, err
 }
 
@@ -332,6 +340,9 @@ func (s *ImageService) verifyObject(
 ) (utils.VerifiedImage, string, error) {
 	object, err := s.objectStore.Open(ctx, image.StagingObjectKey)
 	if err != nil {
+		if errors.Is(err, ErrObjectNotFound) {
+			return utils.VerifiedImage{}, "", ErrInvalidImageMetadata
+		}
 		return utils.VerifiedImage{}, "", err
 	}
 	defer object.Reader.Close()

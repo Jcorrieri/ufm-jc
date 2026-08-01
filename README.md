@@ -67,6 +67,71 @@ $ go run ./cmd/seed
 $ go run ./cmd/server
 ```
 
+#### Optional: Use Amazon S3 for Images
+
+SQLite continues to store image ownership, lifecycle state, and verified metadata. Image bytes
+can be stored in a private S3 bucket while both application processes run locally.
+
+1.) Create a private, nonversioned general-purpose S3 bucket. Keep Block Public Access enabled
+and use the default S3-managed server-side encryption.
+
+2.) Add this CORS configuration to the bucket, replacing the origin if Angular runs elsewhere:
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["POST", "GET", "HEAD"],
+    "AllowedOrigins": ["http://localhost:4200"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+3.) Add a bucket lifecycle rule that expires objects under the `staging/` prefix after one day.
+This is a safety net for uploads that are abandoned before verification or whose immediate
+staging cleanup fails.
+
+4.) Grant the AWS identity used by the backend the following least-privilege IAM policy. Replace
+`YOUR_BUCKET_NAME` in both resource ARNs:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": [
+        "arn:aws:s3:::YOUR_BUCKET_NAME/staging/*",
+        "arn:aws:s3:::YOUR_BUCKET_NAME/images/*"
+      ]
+    }
+  ]
+}
+```
+
+5.) Authenticate locally with an AWS profile or standard AWS credential environment variables.
+Do not put access keys in `backend/.env`. Configure only these non-secret values there:
+
+```dotenv
+OBJECT_STORE_PROVIDER="s3"
+S3_BUCKET="YOUR_BUCKET_NAME"
+AWS_REGION="us-east-1"
+AWS_PROFILE="your-local-profile"
+```
+
+The API creates UUIDv7 image IDs and derives both S3 keys server-side. The browser receives a
+five-minute presigned POST form limited to that exact staging key, the declared JPEG/PNG content
+type, and the five MiB maximum. The bucket stays private; image reads use five-minute presigned
+GET redirects.
+
+Background processing is intentionally deferred. Rows already marked `deleting`, expired image
+metadata, and stale `verifying` states are not yet reconciled automatically. The staging lifecycle
+rule only cleans abandoned S3 staging bytes and does not replace the future database cleanup
+worker.
+
 ### Starting the Frontend
 
 1.) After the dependencies are installed via npm the frontend can be started.
