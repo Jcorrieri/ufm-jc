@@ -15,6 +15,7 @@ type Order struct {
 	Description  string
 	Price        float64
 	FirstImageID *uuid.UUID `gorm:"type:uuid"`
+	FirstImage   *Image     `json:"-" gorm:"foreignKey:FirstImageID"`
 	SellerName   string
 	Status       string    `gorm:"size:32;index"`
 	PurchasedAt  time.Time `gorm:"index"`

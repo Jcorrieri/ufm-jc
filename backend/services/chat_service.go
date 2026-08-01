@@ -2,11 +2,14 @@ package services
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+var ErrCannotMessageSelf = errors.New("cannot start a conversation with yourself")
 
 type ChatService struct {
 	db *gorm.DB
@@ -21,9 +24,18 @@ func NewChatService(db *gorm.DB) *ChatService {
 func (s *ChatService) GetOrCreateConversation(
 	ctx context.Context,
 	buyerID uuid.UUID,
-	sellerID uuid.UUID,
 	listingID uuid.UUID,
 ) (models.Conversation, error) {
+	listing, err := gorm.G[models.Listing](s.db).
+		Where("id = ?", listingID).
+		First(ctx)
+	if err != nil {
+		return models.Conversation{}, err
+	}
+
+	if listing.SellerID == buyerID {
+		return models.Conversation{}, ErrCannotMessageSelf
+	}
 
 	// Try to find an existing conversation first
 	existing, err := gorm.G[models.Conversation](s.db).
@@ -44,7 +56,7 @@ func (s *ChatService) GetOrCreateConversation(
 	// None found — create a new one
 	convo := models.Conversation{
 		BuyerID:   buyerID,
-		SellerID:  sellerID,
+		SellerID:  listing.SellerID,
 		ListingID: listingID,
 	}
 
@@ -71,7 +83,10 @@ func (s *ChatService) GetUserConversations(
 		Preload("Buyer", nil).
 		Preload("Seller", nil).
 		Preload("Listing", nil).
-		Preload("Messages", nil).
+		Preload("Messages", func(db gorm.PreloadBuilder) error {
+			db.Order("created_at ASC")
+			return nil
+		}).
 		Where("buyer_id = ? OR seller_id = ?", userID, userID).
 		Order("updated_at DESC").
 		Find(ctx)
@@ -108,6 +123,29 @@ func (s *ChatService) GetMessages(
 func (s *ChatService) SaveMessage(
 	ctx context.Context,
 	msg *models.Message,
-) error {
-	return gorm.G[models.Message](s.db).Create(ctx, msg)
+) (*models.Message, error) {
+	var savedMessage models.Message
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := gorm.G[models.Message](tx).Create(ctx, msg); err != nil {
+			return err
+		}
+
+		if err := tx.Model(&models.Conversation{}).
+			Where("id = ?", msg.ConversationID).
+			Update("updated_at", msg.CreatedAt).Error; err != nil {
+			return err
+		}
+
+		var err error
+		savedMessage, err = gorm.G[models.Message](tx).
+			Preload("Sender", nil).
+			Where("id = ?", msg.ID).
+			First(ctx)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &savedMessage, nil
 }

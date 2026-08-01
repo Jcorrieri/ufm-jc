@@ -11,7 +11,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 // Our imports
-import { AuthService } from '../../services/auth.service';
 import { AvatarDropdown } from '../../components/avatar-dropdown/avatar-dropdown';
 import { Listing, ListingRequest, NULL_UUID } from '../../components/listing/listing';
 
@@ -34,18 +33,11 @@ import { Listing, ListingRequest, NULL_UUID } from '../../components/listing/lis
 export class MainPage implements OnInit {
   constructor(
     private router: Router,
-    private authService: AuthService,
     private http: HttpClient,
     private cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit() {
-    try {
-      await this.authService.loadUser();
-    } catch {
-      // user load failed, continue anyway
-    }
-
     const results = await this.fetchListings(this.listingRequest);
 
     this.listings = results;
@@ -58,7 +50,6 @@ export class MainPage implements OnInit {
     const results = await firstValueFrom(
       this.http.get<Listing[]>('/api/listings', {
         params: {
-          key: request.key,
           query: request.query,
           limit: request.limit,
           cursor: request.cursor,
@@ -78,7 +69,6 @@ export class MainPage implements OnInit {
   listings: Listing[] = [];
   filteredListings: Listing[] = [];
   listingRequest: ListingRequest = {
-    key: '',
     query: '',
     limit: 20,
     cursor: NULL_UUID,
@@ -87,10 +77,8 @@ export class MainPage implements OnInit {
   // search functionality
   async search() {
     const query = this.searchQuery.toLowerCase().trim();
-    const key = 'title'; // Hardcoded for now but leaves flexibility for later
 
     const request = this.listingRequest;
-    request.key = key;
     request.query = query;
     request.cursor = NULL_UUID; // Reset cursor upon new search
 

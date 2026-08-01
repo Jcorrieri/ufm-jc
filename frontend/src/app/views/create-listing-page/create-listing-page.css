@@ -67,6 +67,12 @@
   margin: 0 0 12px;
 }
 
+.photo-warning {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
 /* ── Image upload ── */
 .image-upload-area {
   width: 100%;
@@ -168,6 +174,13 @@
 /* ── Error message ── */
 .error-msg {
   color: #d32f2f;
+  font-size: 0.85rem;
+  margin: 0 0 16px;
+  padding: 0 4px;
+}
+
+.submission-status {
+  color: var(--text-secondary);
   font-size: 0.85rem;
   margin: 0 0 16px;
   padding: 0 4px;

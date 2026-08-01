@@ -73,11 +73,13 @@ describe('Order History Page', () => {
 
   it('should navigate back to /main when "Browse Marketplace" is clicked', () => {
     cy.intercept('GET', '/api/orders/me', { statusCode: 200, body: [] }).as('getOrders');
+    cy.intercept('GET', '/api/listings?*', { statusCode: 200, body: [] }).as('getListings');
 
     cy.visit('/orders');
     cy.wait('@getOrders');
 
     cy.contains('button.browse-btn', 'Browse Marketplace').click();
+    cy.wait('@getListings');
     cy.url().should('include', '/main');
   });
 

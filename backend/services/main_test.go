@@ -8,17 +8,15 @@ import (
 	"testing"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 var (
-	dbFile    = "mock.db"
-	db        *gorm.DB
-	testUser  models.User
-	testImage models.Image
+	dbFile   = "mock.db"
+	db       *gorm.DB
+	testUser models.User
 )
 
 func setupDB() {
@@ -58,17 +56,6 @@ func setupDB() {
 		os.Exit(1)
 	}
 
-	testImage = models.Image{
-		OwnerID:   uuid.New(),
-		OwnerType: "listing",
-		Position:  0,
-		Data:      []byte{},
-		MimeType:  "jpg",
-	}
-	if err := gorm.G[models.Image](db).Create(ctx, &testImage); err != nil {
-		fmt.Println("Failed to create image.")
-		os.Exit(1)
-	}
 }
 
 func teardown() {

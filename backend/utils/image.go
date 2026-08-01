@@ -1,98 +1,148 @@
 package utils
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
-	"mime/multipart"
-	"net/http"
-	"sync"
 )
 
 const MaxImageSize = 5 * 1024 * 1024
 
-func ProcessImageFile(fileHeader *multipart.FileHeader) ([]byte, string, error) {
-	if fileHeader.Size > int64(MaxImageSize) {
-		return nil, "", errors.New("image must be under 5MB")
-	}
+var (
+	ErrImageTooLarge        = errors.New("image exceeds the maximum size")
+	ErrInvalidImage         = errors.New("invalid image")
+	ErrUnsupportedImageType = errors.New("only JPEG and PNG images are allowed")
+	ErrImageSizeMismatch    = errors.New("image size does not match the expected size")
+	ErrImageMimeMismatch    = errors.New("image MIME type does not match the expected type")
+	ErrImageDimensions      = errors.New("image dimensions exceed the allowed maximum")
+)
 
-	file, err := fileHeader.Open()
-	if err != nil {
-		return nil, "", errors.New("failed to open image")
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, "", errors.New("failed to read image")
-	}
-
-	mimeType := http.DetectContentType(data)
-	if mimeType != "image/jpeg" && mimeType != "image/png" {
-		return nil, "", errors.New("only JPEG and PNG images are allowed")
-	}
-
-	return data, mimeType, nil
+type VerificationOptions struct {
+	MaximumSizeBytes  int64
+	ExpectedSizeBytes int64
+	ExpectedMimeType  string
 }
 
-var imageURLs = []string{
-	"https://picsum.photos/id/10/400/300.jpg",
-	"https://picsum.photos/id/20/400/300.jpg",
-	"https://picsum.photos/id/30/400/300.jpg",
-	"https://picsum.photos/id/40/400/300.jpg",
-	"https://picsum.photos/id/50/400/300.jpg",
+type VerifiedImage struct {
+	SizeBytes      int64
+	MimeType       string
+	Width          int
+	Height         int
+	ChecksumSHA256 string
 }
 
-type Image struct {
-	URL      string
-	MimeType string
-	Data     []byte
+type ImageVerifier interface {
+	Verify(
+		ctx context.Context,
+		reader io.Reader,
+		options VerificationOptions,
+	) (VerifiedImage, error)
 }
 
-func downloadImage(url string) (Image, error) {
-	resp, err := http.Get(url)
+type StandardImageVerifier struct {
+	maxWidth  int
+	maxHeight int
+	maxPixels int64
+}
+
+func NewStandardImageVerifier(maxWidth, maxHeight int, maxPixels int64) ImageVerifier {
+	return &StandardImageVerifier{
+		maxWidth:  maxWidth,
+		maxHeight: maxHeight,
+		maxPixels: maxPixels,
+	}
+}
+
+func (verifier *StandardImageVerifier) Verify(
+	ctx context.Context,
+	reader io.Reader,
+	options VerificationOptions,
+) (VerifiedImage, error) {
+	maximumSize := options.MaximumSizeBytes
+	if maximumSize <= 0 {
+		maximumSize = MaxImageSize
+	}
+
+	data, err := io.ReadAll(
+		io.LimitReader(contextReader{ctx: ctx, reader: reader}, maximumSize+1),
+	)
 	if err != nil {
-		return Image{}, fmt.Errorf("GET %s: %w", url, err)
+		return VerifiedImage{}, fmt.Errorf("read image: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return Image{}, fmt.Errorf("bad status %s for %s", resp.Status, url)
+	if int64(len(data)) > maximumSize {
+		return VerifiedImage{}, ErrImageTooLarge
+	}
+	if options.ExpectedSizeBytes > 0 &&
+		int64(len(data)) != options.ExpectedSizeBytes {
+		return VerifiedImage{}, ErrImageSizeMismatch
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return Image{}, fmt.Errorf("reading body of %s: %w", url, err)
+		return VerifiedImage{}, fmt.Errorf("%w: %v", ErrInvalidImage, err)
 	}
 
-	mimeType := resp.Header.Get("Content-Type")
-	if mimeType == "" {
-		mimeType = "application/octet-stream"
+	mimeType, err := mimeTypeForFormat(format)
+	if err != nil {
+		return VerifiedImage{}, err
+	}
+	if options.ExpectedMimeType != "" &&
+		mimeType != options.ExpectedMimeType {
+		return VerifiedImage{}, ErrImageMimeMismatch
+	}
+	if (verifier.maxWidth > 0 && config.Width > verifier.maxWidth) ||
+		(verifier.maxHeight > 0 && config.Height > verifier.maxHeight) {
+		return VerifiedImage{}, ErrImageDimensions
+	}
+	pixelCount := int64(config.Width) * int64(config.Height)
+	if verifier.maxPixels > 0 && pixelCount > verifier.maxPixels {
+		return VerifiedImage{}, ErrImageDimensions
 	}
 
-	return Image{URL: url, MimeType: mimeType, Data: data}, nil
+	// Decode the complete image so a valid header with a truncated body is not
+	// accepted as a verified object.
+	if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+		return VerifiedImage{}, fmt.Errorf("%w: %v", ErrInvalidImage, err)
+	}
+
+	checksum := sha256.Sum256(data)
+	return VerifiedImage{
+		SizeBytes:      int64(len(data)),
+		MimeType:       mimeType,
+		Width:          config.Width,
+		Height:         config.Height,
+		ChecksumSHA256: hex.EncodeToString(checksum[:]),
+	}, nil
 }
 
-func DownloadSeedImages() []Image {
-	// Pre-allocate with known length so concurrent writes are safe
-	// without a mutex — each goroutine owns its own index.
-	images := make([]Image, len(imageURLs))
-
-	var wg sync.WaitGroup
-	for i, url := range imageURLs {
-		wg.Add(1)
-		go func(i int, url string) {
-			defer wg.Done()
-			img, err := downloadImage(url)
-			if err != nil {
-				fmt.Printf("skipping %s: %v", url, err)
-				return
-			}
-			images[i] = img
-			fmt.Printf("downloaded %s — %d bytes (%s)\n", url, len(img.Data), img.MimeType)
-		}(i, url)
+func mimeTypeForFormat(format string) (string, error) {
+	switch format {
+	case "jpeg":
+		return "image/jpeg", nil
+	case "png":
+		return "image/png", nil
+	default:
+		return "", ErrUnsupportedImageType
 	}
-	wg.Wait()
+}
 
-	return images
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(data []byte) (int, error) {
+	select {
+	case <-reader.ctx.Done():
+		return 0, reader.ctx.Err()
+	default:
+		return reader.reader.Read(data)
+	}
 }

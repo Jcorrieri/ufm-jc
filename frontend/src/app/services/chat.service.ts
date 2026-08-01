@@ -1,4 +1,4 @@
-import { Injectable,signal } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 
 export interface Conversation {
   id: string;
@@ -27,31 +27,35 @@ export interface Message {
 export class ChatService {
   private socket: WebSocket | null = null;
   private messageHandlers: ((msg: Message) => void)[] = [];
-  private lastMessageSignal = signal<Message | null>(null);
-  readonly lastMessage = this.lastMessageSignal.asReadonly();
-  private refreshSignal = signal(0);
-  readonly refresh = this.refreshSignal.asReadonly();
+  private conversationLoadPromise: Promise<Conversation[]> | null = null;
+  private readonly conversationsSignal = signal<Conversation[]>([]);
+  private readonly conversationsLoadingSignal = signal(false);
+  readonly conversations = this.conversationsSignal.asReadonly();
+  readonly conversationsLoading = this.conversationsLoadingSignal.asReadonly();
 
-  triggerRefresh() {
-    this.refreshSignal.update(n => n + 1);
-  }
-
-  async startConversation(listingId: string, sellerId: string): Promise<Conversation> {
-    console.log('Sending body:', { listing_id: listingId, seller_id: sellerId });
+  async startConversation(listingId: string): Promise<Conversation> {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ listing_id: listingId, seller_id: sellerId }),
+      body: JSON.stringify({ listing_id: listingId }),
     });
     if (!res.ok) throw new Error('Failed to start conversation');
-    return res.json();
+    const conversation = await res.json();
+    this.upsertConversation(conversation);
+    return conversation;
   }
 
-  async getConversations(): Promise<Conversation[]> {
-    const res = await fetch('/api/conversations', { credentials: 'include' });
-    if (!res.ok) throw new Error('Failed to fetch conversations');
-    return res.json();
+  async refreshConversations(): Promise<Conversation[]> {
+    if (!this.conversationLoadPromise) {
+      this.conversationsLoadingSignal.set(true);
+      this.conversationLoadPromise = this.fetchConversations().finally(() => {
+        this.conversationLoadPromise = null;
+        this.conversationsLoadingSignal.set(false);
+      });
+    }
+
+    return this.conversationLoadPromise;
   }
 
   async getMessages(conversationId: string): Promise<Message[]> {
@@ -65,15 +69,13 @@ export class ChatService {
 
   connect(conversationId: string): void {
     this.disconnect();
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = 'localhost:8080';
-    const url = `${protocol}://${host}/api/ws/chat/${conversationId}`;
+    const url = this.createWebSocketUrl(conversationId);
     this.socket = new WebSocket(url);
     this.socket.onmessage = (event) => {
       try {
         const msg: Message = JSON.parse(event.data);
+        this.updateConversationFromMessage(msg);
         this.messageHandlers.forEach(handler => handler(msg));
-        this.lastMessageSignal.set(msg);
       } catch {
         console.error('Failed to parse incoming message', event.data);
       }
@@ -103,5 +105,63 @@ export class ChatService {
       this.socket.close();
       this.socket = null;
     }
+  }
+
+  private createWebSocketUrl(
+    conversationId: string,
+    pageUrl = window.location.href,
+  ): string {
+    const url = new URL(`/api/ws/chat/${encodeURIComponent(conversationId)}`, pageUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString();
+  }
+
+  private async fetchConversations(): Promise<Conversation[]> {
+    const response = await fetch('/api/conversations', { credentials: 'include' });
+    if (!response.ok) {
+      throw new Error('Failed to fetch conversations');
+    }
+
+    const conversations = (await response.json()) ?? [];
+    this.conversationsSignal.set(conversations);
+    return conversations;
+  }
+
+  private upsertConversation(conversation: Conversation): void {
+    const conversations = this.conversations();
+    const existingIndex = conversations.findIndex(item => item.id === conversation.id);
+    if (existingIndex === -1) {
+      this.conversationsSignal.set([conversation, ...conversations]);
+      return;
+    }
+
+    const existing = conversations[existingIndex];
+    const updated = {
+      ...existing,
+      ...conversation,
+      last_message: conversation.last_message || existing.last_message,
+    };
+    this.conversationsSignal.set([
+      updated,
+      ...conversations.filter(item => item.id !== conversation.id),
+    ]);
+  }
+
+  private updateConversationFromMessage(message: Message): void {
+    const conversation = this.conversations().find(
+      item => item.id === message.conversation_id,
+    );
+    if (!conversation) {
+      return;
+    }
+
+    this.conversationsSignal.set([
+      {
+        ...conversation,
+        last_message: message.content,
+        updated_at: message.created_at,
+      },
+      ...this.conversations().filter(item => item.id !== message.conversation_id),
+    ]);
   }
 }

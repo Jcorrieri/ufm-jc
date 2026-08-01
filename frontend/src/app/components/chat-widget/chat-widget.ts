@@ -1,8 +1,7 @@
-import { Component, OnInit, effect, ElementRef, HostListener, signal } from '@angular/core';
+import { Component, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
-import { Router } from '@angular/router';
 import { ChatWidgetService } from '../../services/chat-widget.service';
 import { ChatService, Conversation } from '../../services/chat.service';
 import { AuthService } from '../../services/auth.service';
@@ -15,22 +14,20 @@ import { ChatPanel } from '../chat-panel/chat-panel';
   templateUrl: './chat-widget.html',
   styleUrl: './chat-widget.css',
 })
-export class ChatWidget implements OnInit {
-  conversations = signal<Conversation[]>([]);
-  loading = signal(false);
-
+export class ChatWidget {
   constructor(
     public widget: ChatWidgetService,
     private chatService: ChatService,
     private authService: AuthService,
-    private router: Router,
     private el: ElementRef,
-  ) {
-    effect(() => {
-      const _ = this.chatService.refresh();
-      this.loadConversations();
-      
-    });
+  ) {}
+
+  get conversations() {
+    return this.chatService.conversations;
+  }
+
+  get loading() {
+    return this.chatService.conversationsLoading;
   }
 
   @HostListener('document:click', ['$event'])
@@ -40,25 +37,19 @@ export class ChatWidget implements OnInit {
     }
   }
 
-  async ngOnInit() {}
-
   async toggle() {
     this.widget.toggle();
     if (this.widget.state() === 'list') {
-      await this.loadConversations();
+      await this.refreshConversations();
     }
   }
 
-  async loadConversations() {
+  async refreshConversations() {
     if (!this.authService.currentUser()) return;
-    this.loading.set(true);
     try {
-      const data = await this.chatService.getConversations();
-      this.conversations.set(data ?? []);
+      await this.chatService.refreshConversations();
     } catch {
-      this.conversations.set([]);
-    } finally {
-      this.loading.set(false);
+      // Preserve the last successful list if refreshing fails.
     }
   }
 
@@ -70,12 +61,7 @@ export class ChatWidget implements OnInit {
     this.chatService.disconnect();
     this.chatService.clearHandlers();
     this.widget.backToList();
-    this.loadConversations();
-  }
-
-  get isAuthPage(): boolean {
-    const url = this.router.url;
-    return url === '/login' || url === '/sign-up' || url === '/';
+    this.refreshConversations();
   }
 
   getOtherName(convo: Conversation): string {

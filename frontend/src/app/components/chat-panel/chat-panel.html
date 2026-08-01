@@ -34,14 +34,23 @@
   <!-- Input -->
   <div class="chat-input-row">
     <mat-form-field appearance="outline" class="chat-input-field">
-      <input
+      <textarea
         matInput
         placeholder="Type a message..."
         [(ngModel)]="newMessage"
         (keydown)="onKeyDown($event)"
-      />
+        [maxlength]="maxMessageLength"
+        rows="3"
+      ></textarea>
+      <mat-hint>Ctrl/⌘ + Enter to send</mat-hint>
+      <mat-hint align="end">{{ newMessage.length }} / {{ maxMessageLength }}</mat-hint>
     </mat-form-field>
-    <button mat-icon-button color="primary" (click)="send()" [disabled]="!newMessage.trim()">
+    <button
+      mat-icon-button
+      color="primary"
+      (click)="send()"
+      [disabled]="!newMessage.trim() || newMessage.length > maxMessageLength"
+    >
       <mat-icon>send</mat-icon>
     </button>
   </div>

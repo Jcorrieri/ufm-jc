@@ -7,16 +7,24 @@ import (
 	"gorm.io/gorm"
 )
 
+type ListingStatus string
+
+const (
+	ListingStatusDraft     ListingStatus = "draft"
+	ListingStatusAvailable ListingStatus = "available"
+	ListingStatusSold      ListingStatus = "sold"
+)
+
 type Listing struct {
-	ID          uuid.UUID `json:"id" gorm:"primaryKey"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Price       float64   `json:"price"`
-	Status      string    `json:"status" gorm:"size:32;default:'available';index"` // available or sold
-	SellerID    uuid.UUID `json:"seller_id" gorm:"type:uuid,index"`
-	Seller      User      `json:"-" gorm:"foreignKey:SellerID"`
-	Images      []Image   `json:"images" gorm:"polymorphic:Owner;constraint:OnDelete:CASCADE;"`
-	CreatedAt   time.Time `gorm:"index"`
+	ID          uuid.UUID     `json:"id" gorm:"primaryKey"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Price       float64       `json:"price"`
+	Status      ListingStatus `json:"status" gorm:"size:32;default:'available';index"`
+	SellerID    uuid.UUID     `json:"seller_id" gorm:"type:uuid,index"`
+	Seller      User          `json:"-" gorm:"foreignKey:SellerID"`
+	Images      []Image       `json:"-" gorm:"foreignKey:ListingID"`
+	CreatedAt   time.Time     `gorm:"index"`
 	UpdatedAt   time.Time
 	DeletedAt   gorm.DeletedAt `gorm:"index"`
 }
@@ -53,7 +61,7 @@ func (l *Listing) GetResponse() ListingResponse {
 		Title:        l.Title,
 		Description:  l.Description,
 		Price:        l.Price,
-		Status:       l.Status,
+		Status:       string(l.Status),
 		ImageCount:   len(l.Images),
 		FirstImageID: firstImageID,
 		SellerName:   l.Seller.FirstName + " " + l.Seller.LastName,

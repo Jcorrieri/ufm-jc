@@ -1,22 +1,16 @@
-package main
+package app
 
 import (
-	"fmt"
-	"os"
-
-	"github.com/Jcorrieri/uf-marketplace/backend/database"
+	"github.com/Jcorrieri/uf-marketplace/backend/config"
 	"github.com/Jcorrieri/uf-marketplace/backend/handlers"
 	"github.com/Jcorrieri/uf-marketplace/backend/middleware"
 	"github.com/Jcorrieri/uf-marketplace/backend/services"
+	"github.com/Jcorrieri/uf-marketplace/backend/utils"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 )
 
-func RegisterAuthRoutes(
-	public *gin.RouterGroup,
-	authHandler *handlers.AuthHandler,
-	authService *services.AuthService,
-) {
+func RegisterAuthRoutes(public *gin.RouterGroup, authHandler *handlers.AuthHandler) {
 	public.POST("/register", authHandler.Register)
 	public.POST("/login", authHandler.Login)
 	public.POST("/logout", authHandler.Logout)
@@ -30,12 +24,7 @@ func RegisterPasswordResetRoutes(
 	public.POST("/reset-password", passwordResetHandler.ResetPassword)
 }
 
-func RegisterUserRoutes(
-	protected *gin.RouterGroup,
-	userHandler *handlers.UserHandler,
-	userService *services.UserService,
-) {
-	protected.PUT("/users/me/profile-image", userHandler.UploadProfileImage)
+func RegisterUserRoutes(protected *gin.RouterGroup, userHandler *handlers.UserHandler) {
 	protected.GET("/users/:id", userHandler.GetUserById)
 	protected.GET("/users/me", userHandler.GetCurrentUser)
 	protected.DELETE("/users/me", userHandler.DeleteUser)
@@ -46,26 +35,29 @@ func RegisterListingsRoutes(
 	public *gin.RouterGroup,
 	protected *gin.RouterGroup,
 	listingHandler *handlers.ListingHandler,
-	listingService *services.ListingService,
 ) {
 	public.GET("/listings", listingHandler.GetListings)
 	protected.GET("/listings/me", listingHandler.GetMyListings)
 	protected.POST("/listings", listingHandler.CreateListing)
 	protected.PUT("/listings/:id", listingHandler.UpdateListing)
+	protected.POST("/listings/:id/publish", listingHandler.PublishListing)
+	protected.DELETE("/listing-drafts/:id", listingHandler.AbortDraft)
 	protected.DELETE("/listings/:id", listingHandler.DeleteListing)
 }
 
 func RegisterImageRoutes(
 	public *gin.RouterGroup,
+	protected *gin.RouterGroup,
 	imageHandler *handlers.ImageHandler,
 ) {
 	public.GET("/images/:imageId", imageHandler.GetImage)
+	protected.POST("/images/uploads", imageHandler.BeginUpload)
+	protected.POST("/images/:imageId/complete", imageHandler.CompleteUpload)
+	protected.GET("/images/:imageId/status", imageHandler.GetStatus)
+	protected.DELETE("/images/:imageId", imageHandler.DeleteImage)
 }
 
-func RegisterOrderRoutes(
-	protected *gin.RouterGroup,
-	orderHandler *handlers.OrderHandler,
-) {
+func RegisterOrderRoutes(protected *gin.RouterGroup, orderHandler *handlers.OrderHandler) {
 	protected.POST("/orders", orderHandler.CreateOrder)
 	protected.GET("/orders/me", orderHandler.GetMyOrders)
 }
@@ -73,62 +65,74 @@ func RegisterOrderRoutes(
 func RegisterChatRoutes(
 	protected *gin.RouterGroup,
 	chatHandler *handlers.ChatHandler,
+	chatWebSocketHandler *handlers.ChatWebSocketHandler,
 ) {
 	protected.POST("/conversations", chatHandler.StartConversation)
 	protected.GET("/conversations", chatHandler.GetConversations)
 	protected.GET("/conversations/:id/messages", chatHandler.GetMessages)
-	protected.GET("/ws/chat/:id", chatHandler.ServeWs)
+	protected.GET("/ws/chat/:id", chatWebSocketHandler.Serve)
 }
 
-func main() {
-	// Setup
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println("Error loading .env file")
-	}
-	db := database.Connect(os.Getenv("DB_NAME"))
-	sessionName := os.Getenv("SESSION_COOKIE_NAME")
-	if sessionName == "" {
-		sessionName = "session_token"
-	}
+// NewRouter constructs the HTTP application from explicit dependencies.
+func NewRouter(db *gorm.DB, configuration config.Config) *gin.Engine {
+	return NewRouterWithObjectStore(
+		db,
+		configuration,
+		services.UnavailableObjectStore{},
+	)
+}
 
-	// Services
-	authService := services.NewAuthService(db)
+// NewRouterWithObjectStore constructs the application with an injected image store.
+func NewRouterWithObjectStore(
+	db *gorm.DB,
+	configuration config.Config,
+	objectStore services.ObjectStore,
+) *gin.Engine {
+	authService := services.NewAuthService(db, configuration.JWTSecret)
 	passwordResetService := services.NewPasswordResetService(db)
 	userService := services.NewUserService(db)
 	listingService := services.NewListingService(db)
-	imageService := services.NewImageService(db)
+	imageService := services.NewImageService(
+		db,
+		objectStore,
+		utils.NewStandardImageVerifier(4096, 4096, 16*1024*1024),
+	)
 	orderService := services.NewOrderService(db)
 	chatService := services.NewChatService(db)
 
-	// Handlers
-	authHandler := handlers.NewAuthHandler(authService, userService, sessionName)
+	authHandler := handlers.NewAuthHandler(
+		authService,
+		userService,
+		configuration.SessionCookieName,
+	)
 	passwordResetHandler := handlers.NewPasswordResetHandler(passwordResetService)
 	userHandler := handlers.NewUserHandler(userService)
 	listingHandler := handlers.NewListingHandler(listingService)
 	imageHandler := handlers.NewImageHandler(imageService)
-	orderHandler := handlers.NewOrderHandler(orderService, listingService)
+	orderHandler := handlers.NewOrderHandler(orderService)
 	hub := services.NewHub()
-	go hub.Run() // starts the hub's goroutine — must be before any connections arrive
-	chatHandler := handlers.NewChatHandler(chatService, hub)
+	chatHandler := handlers.NewChatHandler(chatService)
+	chatWebSocketHandler := handlers.NewChatWebSocketHandler(chatService, hub)
 
-	// Middleware
-	authMiddleware := middleware.AuthMiddleware(os.Getenv("JWT_SECRET"), sessionName)
+	authMiddleware := middleware.AuthMiddleware(
+		configuration.JWTSecret,
+		configuration.SessionCookieName,
+	)
 
-	// Routes
 	router := gin.Default()
 	api := router.Group("/api")
 	auth := api.Group("/auth")
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
 
-	RegisterAuthRoutes(auth, authHandler, authService)
+	RegisterAuthRoutes(auth, authHandler)
 	RegisterPasswordResetRoutes(auth, passwordResetHandler)
-	RegisterUserRoutes(protected, userHandler, userService)
-	RegisterListingsRoutes(api, protected, listingHandler, listingService)
-	RegisterImageRoutes(api, imageHandler)
+	RegisterUserRoutes(protected, userHandler)
+	RegisterListingsRoutes(api, protected, listingHandler)
+	RegisterImageRoutes(api, protected, imageHandler)
 	RegisterOrderRoutes(protected, orderHandler)
-	RegisterChatRoutes(protected, chatHandler)
+	RegisterChatRoutes(protected, chatHandler, chatWebSocketHandler)
 
-	router.Run("localhost:8080")
+	go hub.Run()
+	return router
 }

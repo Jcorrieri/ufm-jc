@@ -95,7 +95,7 @@ export class SettingsPage implements OnInit {
         return;
       }
 
-      this.authService.logout();
+      this.authService.clearUser();
       this.router.navigate(['/']);
     } catch {
       this.deleteError.set('Unable to reach the server.');

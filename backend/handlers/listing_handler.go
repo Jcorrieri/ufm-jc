@@ -6,9 +6,9 @@ import (
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/Jcorrieri/uf-marketplace/backend/services"
-	"github.com/Jcorrieri/uf-marketplace/backend/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type ListingHandler struct {
@@ -35,10 +35,9 @@ func (h *ListingHandler) GetListings(c *gin.Context) {
 
 	var listings []models.Listing
 
-	key, exists := c.GetQuery("key")
-	if exists && key != "" {
-		query := c.Query("query")
-		listings, err = h.listingService.Search(c.Request.Context(), key, query, limit, cursor)
+	query := c.Query("query")
+	if query != "" {
+		listings, err = h.listingService.Search(c.Request.Context(), query, limit, cursor)
 	} else {
 		listings, err = h.listingService.GetAll(c.Request.Context(), limit, cursor)
 	}
@@ -56,7 +55,13 @@ func (h *ListingHandler) GetListings(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// POST /api/listings (multipart form)
+type listingInput struct {
+	Title       string  `json:"title" binding:"required"`
+	Description string  `json:"description" binding:"required"`
+	Price       float64 `json:"price" binding:"gte=0"`
+}
+
+// POST /api/listings
 func (h *ListingHandler) CreateListing(c *gin.Context) {
 	userID, err := uuid.Parse(c.MustGet("userID").(string))
 	if err != nil {
@@ -64,46 +69,22 @@ func (h *ListingHandler) CreateListing(c *gin.Context) {
 		return
 	}
 
-	title := c.PostForm("title")
-	description := c.PostForm("description")
-	priceStr := c.PostForm("price")
-
-	if title == "" || description == "" || priceStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Title, description, and price are required"})
+	var input listingInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid listing"})
 		return
 	}
 
-	price, err := strconv.ParseFloat(priceStr, 64)
-	if err != nil || price < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid price"})
-		return
-	}
-
-	listing := models.Listing{
-		Title:       title,
-		Description: description,
-		Price:       price,
-		SellerID:    userID,
-	}
-
-	// Parse multiple image files
-	form, err := c.MultipartForm()
-	if err == nil && form.File["images"] != nil {
-		for i, fileHeader := range form.File["images"] {
-			data, mimeType, err := utils.ProcessImageFile(fileHeader)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			listing.Images = append(listing.Images, models.Image{
-				Data:     data,
-				MimeType: mimeType,
-				Position: i,
-			})
-		}
-	}
-
-	if err := h.listingService.Create(c.Request.Context(), &listing); err != nil {
+	listing, err := h.listingService.Create(
+		c.Request.Context(),
+		services.CreateListingRequest{
+			Title:       input.Title,
+			Description: input.Description,
+			Price:       input.Price,
+			SellerID:    userID,
+		},
+	)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create listing"})
 		return
 	}
@@ -150,6 +131,7 @@ func (h *ListingHandler) UpdateListing(c *gin.Context) {
 	listing, err := h.listingService.GetByID(c.Request.Context(), listingID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
+		return
 	}
 
 	if userID != listing.SellerID {
@@ -157,47 +139,20 @@ func (h *ListingHandler) UpdateListing(c *gin.Context) {
 		return
 	}
 
-	priceStr := c.PostForm("price")
-
-	var price float64
-	if priceStr != "" {
-		price, err = strconv.ParseFloat(priceStr, 64)
-		if err != nil || price < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid price"})
-			return
-		}
-	}
-
-	// Handle new images if provided
-	var newImageBatch []services.CreateImageRequest
-
-	form, err := c.MultipartForm()
-	if err == nil && form.File["images"] != nil {
-		for i, fileHeader := range form.File["images"] {
-			data, mimeType, err := utils.ProcessImageFile(fileHeader)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			newImageBatch = append(newImageBatch, services.CreateImageRequest{
-				OwnerID:   listingID,
-				OwnerType: "listings",
-				Data:      data,
-				MimeType:  mimeType,
-				Position:  i,
-			})
-		}
+	var input listingInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid listing"})
+		return
 	}
 
 	updated, err := h.listingService.Update(
 		c.Request.Context(),
 		listingID,
 		services.UpdateListingRequest{
-			Title:       c.PostForm("title"),
-			Description: c.PostForm("description"),
-			Price:       price,
+			Title:       input.Title,
+			Description: input.Description,
+			Price:       input.Price,
 		},
-		newImageBatch,
 	)
 
 	if err != nil {
@@ -206,6 +161,32 @@ func (h *ListingHandler) UpdateListing(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, updated.GetResponse())
+}
+
+// POST /api/listings/:id/publish
+func (h *ListingHandler) PublishListing(c *gin.Context) {
+	userID, err := uuid.Parse(c.MustGet("userID").(string))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	listingID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return
+	}
+
+	listing, err := h.listingService.Publish(c.Request.Context(), listingID, userID)
+	if err != nil {
+		status := http.StatusConflict
+		if err == services.ErrInvalidImageState {
+			c.JSON(status, gin.H{"error": "Listing has unresolved images"})
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "Draft listing not found"})
+		return
+	}
+	c.JSON(http.StatusOK, listing.GetResponse())
 }
 
 // DELETE /api/listings/:id
@@ -222,20 +203,43 @@ func (h *ListingHandler) DeleteListing(c *gin.Context) {
 		return
 	}
 
-	listing, err := h.listingService.GetByID(c.Request.Context(), listingID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
-	}
-
-	if userID != listing.SellerID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	if err := h.listingService.Delete(c.Request.Context(), listingID); err != nil {
+	if err := h.listingService.Delete(
+		c.Request.Context(),
+		listingID,
+		userID,
+	); err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete listing"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Listing deleted"})
+}
+
+// DELETE /api/listing-drafts/:id
+func (h *ListingHandler) AbortDraft(c *gin.Context) {
+	userID, err := uuid.Parse(c.MustGet("userID").(string))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	listingID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid listing ID"})
+		return
+	}
+	err = h.listingService.AbortDraft(c.Request.Context(), listingID, userID)
+	switch {
+	case err == nil:
+		c.Status(http.StatusNoContent)
+	case err == services.ErrInvalidImageState:
+		c.JSON(http.StatusConflict, gin.H{"error": "Listing is no longer a draft"})
+	case err == gorm.ErrRecordNotFound:
+		c.JSON(http.StatusNotFound, gin.H{"error": "Draft listing not found"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to abort draft"})
+	}
 }

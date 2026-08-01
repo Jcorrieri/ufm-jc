@@ -1,25 +1,26 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/Jcorrieri/uf-marketplace/backend/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type ChatHandler struct {
 	chatService *services.ChatService
-	hub         *services.Hub
 }
 
-func NewChatHandler(s *services.ChatService, hub *services.Hub) *ChatHandler {
-	return &ChatHandler{chatService: s, hub: hub}
+func NewChatHandler(chatService *services.ChatService) *ChatHandler {
+	return &ChatHandler{chatService: chatService}
 }
 
 // POST /api/conversations
-// Body: { "listing_id": "...", "seller_id": "..." }
+// Body: { "listing_id": "..." }
 func (h *ChatHandler) StartConversation(c *gin.Context) {
 	buyerID, err := uuid.Parse(c.MustGet("userID").(string))
 	if err != nil {
@@ -29,7 +30,6 @@ func (h *ChatHandler) StartConversation(c *gin.Context) {
 
 	var body struct {
 		ListingID string `json:"listing_id"`
-		SellerID  string `json:"seller_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
@@ -42,20 +42,15 @@ func (h *ChatHandler) StartConversation(c *gin.Context) {
 		return
 	}
 
-	sellerID, err := uuid.Parse(body.SellerID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seller_id"})
+	convo, err := h.chatService.GetOrCreateConversation(c.Request.Context(), buyerID, listingID)
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "Listing not found"})
 		return
-	}
-
-	// Prevent sellers from messaging themselves
-	if buyerID == sellerID {
+	case errors.Is(err, services.ErrCannotMessageSelf):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot message yourself"})
 		return
-	}
-
-	convo, err := h.chatService.GetOrCreateConversation(c.Request.Context(), buyerID, sellerID, listingID)
-	if err != nil {
+	case err != nil:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start conversation"})
 		return
 	}
@@ -126,33 +121,4 @@ func (h *ChatHandler) GetMessages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
-}
-
-// GET /ws/chat/:id  — WebSocket upgrade
-func (h *ChatHandler) ServeWs(c *gin.Context) {
-	userID, err := uuid.Parse(c.MustGet("userID").(string))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	conversationID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid conversation ID"})
-		return
-	}
-
-	// Verify user is a participant before allowing WebSocket connection
-	convo, err := h.chatService.GetByID(c.Request.Context(), conversationID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
-		return
-	}
-
-	if userID != convo.BuyerID && userID != convo.SellerID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-		return
-	}
-
-	services.ServeWs(h.hub, h.chatService, c.Writer, c.Request, conversationID, userID)
 }

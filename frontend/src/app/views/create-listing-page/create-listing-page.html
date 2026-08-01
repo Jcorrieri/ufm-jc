@@ -9,6 +9,7 @@
   <!-- Image upload section -->
   <section class="form-section">
     <h2 class="section-title">Photos</h2>
+    <p class="photo-warning">Photos cannot be changed after the listing is posted.</p>
     <div class="image-upload-area">
       <div class="image-scroll-container">
         @for (img of images; track img.url) {
@@ -63,6 +64,9 @@
 
   @if (errorMsg()) {
     <p class="error-msg">{{ errorMsg() }}</p>
+  }
+  @if (submissionStatus()) {
+    <p class="submission-status">{{ submissionStatus() }}</p>
   }
 
   <!-- Submit button -->

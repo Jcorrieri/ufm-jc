@@ -12,6 +12,7 @@ interface MyListing {
   title: string;
   description: string;
   price: number;
+  status: 'draft' | 'available' | 'sold';
   image_count: number;
   first_image_id: string | null;
   seller_name: string;
@@ -22,7 +23,6 @@ interface EditState {
   title: string;
   description: string;
   price: number;
-  newImages: { file: File; url: string }[];
 }
 
 @Component({
@@ -42,7 +42,7 @@ interface EditState {
 export class MyListingsPage implements OnInit {
   listings: MyListing[] = [];
   editingId: string | null = null;
-  editState: EditState = { title: '', description: '', price: 0, newImages: [] };
+  editState: EditState = { title: '', description: '', price: 0 };
   saving = signal(false);
   errorMsg = signal('');
 
@@ -73,40 +73,13 @@ export class MyListingsPage implements OnInit {
       title: listing.title,
       description: listing.description,
       price: listing.price,
-      newImages: [],
     };
     this.errorMsg.set('');
   }
 
   cancelEdit() {
     this.editingId = null;
-    this.editState.newImages.forEach((img) => URL.revokeObjectURL(img.url));
-    this.editState = { title: '', description: '', price: 0, newImages: [] };
-  }
-
-  onImagesSelected(event: Event) {
-    const input = event.target as HTMLInputElement;
-    const files = input.files;
-    if (!files) return;
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (!['image/jpeg', 'image/png'].includes(file.type)) {
-        this.errorMsg.set('Only JPEG and PNG images are allowed.');
-        continue;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        this.errorMsg.set('Each image must be under 5MB.');
-        continue;
-      }
-      this.editState.newImages.push({ file, url: URL.createObjectURL(file) });
-    }
-    input.value = '';
-  }
-
-  removeNewImage(index: number) {
-    URL.revokeObjectURL(this.editState.newImages[index].url);
-    this.editState.newImages.splice(index, 1);
+    this.editState = { title: '', description: '', price: 0 };
   }
 
   async saveEdit(listing: MyListing) {
@@ -119,19 +92,15 @@ export class MyListingsPage implements OnInit {
     this.errorMsg.set('');
 
     try {
-      const formData = new FormData();
-      formData.append('title', this.editState.title);
-      formData.append('description', this.editState.description);
-      formData.append('price', this.editState.price.toString());
-
-      for (const img of this.editState.newImages) {
-        formData.append('images', img.file);
-      }
-
       const res = await fetch(`/api/listings/${listing.id}`, {
         method: 'PUT',
         credentials: 'include',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: this.editState.title,
+          description: this.editState.description,
+          price: this.editState.price,
+        }),
       });
 
       if (!res.ok) {
@@ -141,14 +110,12 @@ export class MyListingsPage implements OnInit {
       }
 
       const updated = await res.json();
-      console.log(updated);
       const idx = this.listings.findIndex((l) => l.id === listing.id);
       if (idx !== -1) {
         this.listings[idx] = updated;
       }
       this.editingId = null;
-      this.editState.newImages.forEach((img) => URL.revokeObjectURL(img.url));
-      this.editState = { title: '', description: '', price: 0, newImages: [] };
+      this.editState = { title: '', description: '', price: 0 };
     } catch {
       this.errorMsg.set('Unable to reach the server.');
     } finally {

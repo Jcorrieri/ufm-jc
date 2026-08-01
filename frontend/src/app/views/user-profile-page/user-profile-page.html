@@ -9,6 +9,7 @@
   #profileImageInput
   type="file"
   accept="image/jpeg,image/png"
+  [disabled]="saving()"
   style="display: none"
   (change)="onProfileImageSelected($event)"
 />

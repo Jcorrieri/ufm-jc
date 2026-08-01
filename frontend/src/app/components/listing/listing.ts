@@ -14,7 +14,6 @@ export interface Listing {
 }
 
 export interface ListingRequest {
-  key: string;
   query: string;
   limit: number;
   cursor: string;

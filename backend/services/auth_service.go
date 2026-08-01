@@ -2,8 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
-	"os"
 
 	"github.com/Jcorrieri/uf-marketplace/backend/models"
 	"github.com/Jcorrieri/uf-marketplace/backend/utils"
@@ -11,18 +9,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// Define the service struct whose only dependency is the db connection.
+// Define the service struct whose dependencies are the db connection and secret.
 // Services will handle all database operations for each model (users, posts, etc.).
 // See https://gorm.io/docs/the_generics_way.html for generics API usage.
 type AuthService struct {
-	db *gorm.DB
+	db        *gorm.DB
+	jwtSecret string
 }
 
-func NewAuthService(db *gorm.DB) *AuthService {
-	return &AuthService{db: db}
+func NewAuthService(db *gorm.DB, jwtSecret string) *AuthService {
+	return &AuthService{db: db, jwtSecret: jwtSecret}
 }
 
-func (s *AuthService) Authenticate(ctx context.Context, email, password string) (*models.User, string, error) {
+func (s *AuthService) Authenticate(
+	ctx context.Context,
+	email string,
+	password string,
+) (*models.User, string, error) {
 	// Check if account exists w/ given email
 	user, err := gorm.G[models.User](s.db).Where("email = ?", email).First(ctx)
 	if err != nil {
@@ -34,12 +37,7 @@ func (s *AuthService) Authenticate(ctx context.Context, email, password string) 
 	}
 
 	// Generate a JWT token for the authenticated user
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return nil, "", errors.New("JWT secret not set")
-	}
-
-	token, err := utils.GenerateToken(user.ID, secret)
+	token, err := utils.GenerateToken(user.ID, s.jwtSecret)
 	if err != nil {
 		return nil, "", err
 	}

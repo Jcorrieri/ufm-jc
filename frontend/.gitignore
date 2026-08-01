@@ -39,6 +39,8 @@ copilot-instructions.md
 testem.log
 /typings
 __screenshots__/
+/cypress/screenshots/
+/cypress/videos/
 
 # System files
 .DS_Store
