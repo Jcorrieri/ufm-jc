@@ -122,16 +122,6 @@ AWS_REGION="us-east-1"
 AWS_PROFILE="your-local-profile"
 ```
 
-The API creates UUIDv7 image IDs and derives both S3 keys server-side. The browser receives a
-five-minute presigned POST form limited to that exact staging key, the declared JPEG/PNG content
-type, and the five MiB maximum. The bucket stays private; image reads use five-minute presigned
-GET redirects.
-
-Background processing is intentionally deferred. Rows already marked `deleting`, expired image
-metadata, and stale `verifying` states are not yet reconciled automatically. The staging lifecycle
-rule only cleans abandoned S3 staging bytes and does not replace the future database cleanup
-worker.
-
 ### Starting the Frontend
 
 1.) After the dependencies are installed via npm the frontend can be started.
